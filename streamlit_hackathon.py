@@ -2,17 +2,20 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import numpy as np
+import os
 
 st.set_page_config(page_title="Temperatuuranalyse 2023", layout="wide")
 
 # ====== BESTANDSLOCATIES ======
+# Aangepast: CSV's staan in de root van je repo
 CITY_FILES = {
-    "Amsterdam": "preprocessed_data/data_daily_Amsterdam.csv",
-    "Londen": "preprocessed_data/data_daily_Londen.csv",
-    "Madrid": "preprocessed_data/data_daily_Madrid.csv"
+    "Amsterdam": "data_daily_Amsterdam.csv",
+    "Londen": "data_daily_Londen.csv",
+    "Madrid": "data_daily_Madrid.csv"
 }
-MAP_FILE = "preprocessed_data/temperature_persistence_map.csv"
+MAP_FILE = "temperature_persistence_map.csv"
 
+# ====== FUNCTIES ======
 @st.cache_data
 def load_city(file):
     df = pd.read_csv(file)
@@ -21,7 +24,12 @@ def load_city(file):
 
 @st.cache_data
 def load_map(file):
-    return pd.read_csv(file)
+    df = pd.read_csv(file)
+    return df
+
+# ====== DEBUG: bestanden in root ======
+st.sidebar.title("🔍 Debug")
+st.sidebar.write("Bestanden in root:", os.listdir("."))
 
 # ====== SIDEBAR ======
 st.sidebar.title("🌡️ Analyse van Temperatuur 2023")
@@ -40,7 +48,13 @@ if view == "Tijdreeks per stad":
     st.title("📈 Dagelijkse gemiddelde temperatuur")
     city = st.selectbox("Kies stad:", list(CITY_FILES.keys()))
     df = load_city(CITY_FILES[city])
-    fig = px.line(df, x="date", y="t2m_daily_mean_C", title=f"Temperatuurverloop in {city} (2023)", labels={"t2m_daily_mean_C": "°C"})
+    fig = px.line(
+        df,
+        x="date",
+        y="t2m_daily_mean_C",
+        title=f"Temperatuurverloop in {city} (2023)",
+        labels={"t2m_daily_mean_C": "°C"}
+    )
     st.plotly_chart(fig, use_container_width=True)
 
 elif view == "Maandelijkse spreiding":
@@ -48,7 +62,13 @@ elif view == "Maandelijkse spreiding":
     city = st.selectbox("Kies stad:", list(CITY_FILES.keys()))
     df = load_city(CITY_FILES[city])
     df["month"] = df["date"].dt.month
-    fig = px.box(df, x="month", y="t2m_daily_mean_C", title=f"Temperatuurspreiding per maand ({city})", labels={"month": "Maand", "t2m_daily_mean_C": "°C"})
+    fig = px.box(
+        df,
+        x="month",
+        y="t2m_daily_mean_C",
+        title=f"Temperatuurspreiding per maand ({city})",
+        labels={"month": "Maand", "t2m_daily_mean_C": "°C"}
+    )
     st.plotly_chart(fig, use_container_width=True)
 
 elif view == "Persistentie per stad":
@@ -63,7 +83,12 @@ elif view == "Persistentie per stad":
     acf_df = pd.DataFrame({"lag_days": range(1, max_lag + 1), "acf": acf})
     memory_days = next((lag for lag, c in zip(acf_df["lag_days"], acf_df["acf"]) if c < 0.2), None)
 
-    fig = px.bar(acf_df, x="lag_days", y="acf", title=f"Autocorrelatie van temperatuur-anomalie – {city}")
+    fig = px.bar(
+        acf_df,
+        x="lag_days",
+        y="acf",
+        title=f"Autocorrelatie van temperatuur-anomalie – {city}"
+    )
     fig.add_hline(y=0.2, line_dash="dot", line_color="red", annotation_text="grens 0.2")
     st.plotly_chart(fig, use_container_width=True)
 
@@ -92,4 +117,3 @@ elif view == "Persistentiekaart (grenzen)":
     - 🔴 Hogere waarden = hoge persistentie (temperatuur verandert traag, typisch maritiem).
     - 🔵 Lagere waarden = lage persistentie (temperatuur wisselt snel, vaak continentaal of bergachtig).
     """)
-
