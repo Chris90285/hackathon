@@ -139,7 +139,7 @@ elif view == "Persistentie per stad":
 elif view == "Seizoens- en dag/nacht patronen":
     st.title("🌡️ Dag/nacht en seizoenspatronen per stad")
     st.write("""
-    Heatmap van gemiddelde temperatuur per uur en per maand. 
+    Heatmap van gemiddelde temperatuur per uur (elke 3 uur) en per maand. 
     Hiermee zie je dag/nachtverschillen en seizoenspatronen op een overzichtelijke manier.
     """)
 
@@ -147,56 +147,73 @@ elif view == "Seizoens- en dag/nacht patronen":
     city = st.selectbox("Kies stad:", list(CITY_FILES.keys()))
     df = load_city(CITY_FILES[city])
 
-    # Controleer of kolommen aanwezig zijn
+    # === Controleer kolommen en structureer data ===
+    # (werkt zowel met hourly_* bestanden als oudere formaten)
     if "valid_time" in df.columns:
         df["valid_time"] = pd.to_datetime(df["valid_time"])
         df["hour"] = df["valid_time"].dt.hour
         df["month"] = df["valid_time"].dt.month
-        df["t2m_C"] = df["t2m"] - 273.15  # omzetten van Kelvin naar Celsius indien nodig
-    elif "date" in df.columns:
-        df["date"] = pd.to_datetime(df["date"])
-        if "hour" not in df.columns:
-            st.warning("⚠️ Deze dataset bevat geen uurlijkse waarden. Alleen dagelijkse gemiddelden zijn beschikbaar.")
-            df["hour"] = 0
-        if "month" not in df.columns:
-            df["month"] = df["date"].dt.month
-        if "t2m_daily_mean_C" in df.columns:
-            df["t2m_C"] = df["t2m_daily_mean_C"]
+        if "t2m_C" not in df.columns:
+            df["t2m_C"] = df["t2m"] - 273.15  # Kelvin → °C
+    else:
+        # Fallback voor andere datasets
+        if "date" in df.columns:
+            df["date"] = pd.to_datetime(df["date"])
+            if "hour" not in df.columns:
+                st.warning("⚠️ Deze dataset bevat geen uurlijkse waarden. Alleen dagelijkse gemiddelden zijn beschikbaar.")
+                df["hour"] = 0
+            if "month" not in df.columns:
+                df["month"] = df["date"].dt.month
+            if "t2m_daily_mean_C" in df.columns:
+                df["t2m_C"] = df["t2m_daily_mean_C"]
 
-    # Gemiddelde temperatuur per maand en uur
+    # === Filter: enkel elke 3 uur behouden (voor nette grafiek & kleinere datasets) ===
+    df = df[df["hour"] % 3 == 0]
+
+    # === Bereken maandgemiddelde per uur ===
     heatmap_data = df.groupby(["month", "hour"])["t2m_C"].mean().reset_index()
 
-    # Maak pivot-tabel
+    # === Maak pivot-tabel (maand vs uur) ===
     all_months = list(range(1, 13))
-    all_hours = list(range(24))
+    all_hours = list(range(0, 24, 3))  # om de 3 uur
     pivot_table = heatmap_data.pivot(index="month", columns="hour", values="t2m_C")
     pivot_table = pivot_table.reindex(index=all_months, columns=all_hours)
     pivot_table = pivot_table.fillna(np.nan)
 
-    # Maak de heatmap
+    # === Plot heatmap ===
     fig = px.imshow(
         pivot_table,
         labels=dict(x="Uur van de dag", y="Maand", color="Temperatuur (°C)"),
-        x=list(range(24)),
+        x=list(range(0, 24, 3)),
         y=["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
         aspect="auto",
         color_continuous_scale="RdBu_r",
         title=f"Seizoens- en dag/nachtpatronen in {city} (2023)"
     )
 
-    # Voeg interactieve hover toe
-    fig.update_traces(hovertemplate="Maand: %{y}<br>Uur: %{x}<br>Temp: %{z:.1f} °C")
+    # Hover details toevoegen
+    fig.update_traces(
+        hovertemplate="Maand: %{y}<br>Uur: %{x}<br>Temp: %{z:.1f} °C"
+    )
 
+    # Layout verbeteren
+    fig.update_layout(
+        xaxis_title="Uur van de dag (elke 3 uur)",
+        yaxis_title="Maand",
+        coloraxis_colorbar=dict(title="°C"),
+        margin=dict(l=40, r=40, t=60, b=40)
+    )
+
+    # === Plot tonen ===
     st.plotly_chart(fig, use_container_width=True)
 
-    # Interpretatie
+    # === Interpretatie ===
     st.markdown("""
     **Interpretatie:**
     - 🔴 Rood = warmere periodes, 🔵 Blauw = koudere periodes.
     - Je ziet duidelijk dag/nachtverschillen (temperatuur daalt 's nachts) en seizoenspatronen (zomer = warm, winter = koud).
     - In zuidelijke steden zoals Madrid blijft het 's nachts relatief warm, terwijl noordelijke steden sterkere nachtelijke afkoeling tonen.
     """)
-
 
 
 elif view == "Voorspelmodel":
