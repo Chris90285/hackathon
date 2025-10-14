@@ -34,7 +34,7 @@ view = st.sidebar.radio(
     [
         "Tijdreeks per stad",
         "Persistentie per stad",
-        "Persistentiekaart (grenzen)"
+        "Seizoens- en dag/nacht patronen"
     ]
 )
 
@@ -45,44 +45,40 @@ import streamlit as st
 if view == "Tijdreeks per stad":
     st.title("📈 Dagelijkse gemiddelde temperatuur per maand")
 
-    # Stad selecteren
-    city = st.selectbox("Kies stad:", list(CITY_FILES.keys()))
-    df = load_city(CITY_FILES[city])
+    # ✅ Checkbox voor vergelijking
+    compare = st.checkbox("Vergelijk meerdere steden")
 
-    # Maand toevoegen
-    df["month"] = df["date"].dt.month
-    df["month_name"] = df["date"].dt.strftime("%b")  # Jan, Feb, etc.
-
-    # Slider voor periode-selectie
-    min_month, max_month = st.slider(
-        "Selecteer maanden om te tonen",
-        min_value=1,
-        max_value=12,
-        value=(1, 12)
-    )
-    df_filtered = df[(df["month"] >= min_month) & (df["month"] <= max_month)]
-
-    # Plot met kleurverloop op temperatuur
-    fig = px.scatter(
-        df_filtered,
-        x="month_name",
-        y="t2m_daily_mean_C",
-        color="t2m_daily_mean_C",
-        color_continuous_scale="RdBu_r",
-        title=f"Temperatuurverloop in {city}",
-        labels={"t2m_daily_mean_C": "Temperatuur (°C)", "month_name": "Maand"},
-        hover_data={"date": True, "t2m_daily_mean_C": True, "month_name": False}
+    # ✅ Maand selectie
+    maanden = st.multiselect(
+        "Kies maand(en) om te tonen:",
+        options=list(range(1, 13)),
+        default=list(range(1, 13)),
+        format_func=lambda x: ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][x-1]
     )
 
-    # Voeg lijn toe
-    fig.update_traces(mode="lines+markers", line=dict(width=3), marker=dict(size=5))
-
-    # X-as correct sorteren (maanden chronologisch)
-    fig.update_xaxes(categoryorder="array",
-                     categoryarray=["Jan", "Feb", "Mar", "Apr", "May", "Jun",
-                                    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"])
+    if compare:
+        # Multi-city plot
+        selected_cities = st.multiselect("Kies steden:", list(CITY_FILES.keys()), default=list(CITY_FILES.keys()))
+        fig = px.line(title="Dagelijkse gemiddelde temperatuur 2023")
+        for city in selected_cities:
+            df = load_city(CITY_FILES[city])
+            df_filtered = df[df["date"].dt.month.isin(maanden)]
+            fig.add_scatter(x=df_filtered["date"], y=df_filtered["t2m_daily_mean_C"], mode="lines", name=city)
+    else:
+        # Single-city plot
+        city = st.selectbox("Kies stad:", list(CITY_FILES.keys()))
+        df = load_city(CITY_FILES[city])
+        df_filtered = df[df["date"].dt.month.isin(maanden)]
+        fig = px.line(
+            df_filtered,
+            x="date",
+            y="t2m_daily_mean_C",
+            title=f"Dagelijkse gemiddelde temperatuur in {city} (2023)",
+            labels={"t2m_daily_mean_C": "°C"}
+        )
 
     st.plotly_chart(fig, use_container_width=True)
+
 
 
 elif view == "Persistentie per stad":
@@ -139,30 +135,37 @@ elif view == "Persistentie per stad":
         st.markdown("⚪ Geen duidelijke grens (correlatie blijft hoog of fluctueert).")
 
 
-elif view == "Persistentiekaart (grenzen)":
-    st.title("🗺️ Ruimtelijke grenzen van temperatuurpersistentie")
-    df_map = load_map(MAP_FILE)
+elif view == "Seizoens- en dag/nacht patronen":
+    st.title("🌡️ Dag/nacht en seizoenspatronen per stad")
+    st.write("Heatmap van gemiddelde temperatuur per uur en per maand. Hiermee zie je dag/nachtverschillen en seizoenspatronen.")
 
-    # Heatmap plot
-    fig = px.density_mapbox(
-        df_map,
-        lat='latitude',
-        lon='longitude',
-        z='acf_lag1',  # persistentie waarde
-        radius=10,     # grootte van de 'blur' per punt; hoger = gladdere kaart
-        center=dict(lat=52, lon=5),  # midden van Europa
-        zoom=3,
-        mapbox_style='carto-positron',
-        color_continuous_scale='RdBu_r',
-        title='Dag-tot-dag persistentie (autocorrelatie lag=1)',
-        hover_data={'latitude': True, 'longitude': True, 'acf_lag1': True}
+    # Kies stad
+    city = st.selectbox("Kies stad:", list(CITY_FILES.keys()))
+    df = load_city(CITY_FILES[city])
+
+    # Voorbereiden van data
+    df['hour'] = df['date'].dt.hour
+    df['month'] = df['date'].dt.month
+    heatmap_data = df.groupby(['month', 'hour'])['t2m_daily_mean_C'].mean().reset_index()
+    pivot_table = heatmap_data.pivot(index='month', columns='hour', values='t2m_daily_mean_C')
+
+    # Plotten
+    fig = px.imshow(
+        pivot_table,
+        labels=dict(x="Uur van de dag", y="Maand", color="°C"),
+        x=list(range(24)),
+        y=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"],
+        aspect="auto",
+        color_continuous_scale='RdBu_r'
     )
 
     st.plotly_chart(fig, use_container_width=True)
 
     st.markdown("""
     **Interpretatie:**
-    - 🔴 Hogere waarden = hoge persistentie (temperatuur verandert traag, typisch maritiem).
-    - 🔵 Lagere waarden = lage persistentie (temperatuur wisselt snel, vaak continentaal of bergachtig).
+    - 🔴 Rood = warmere periodes, 🔵 Blauw = koudere periodes.
+    - Je ziet duidelijk dag/nachtverschillen (temperatuur daalt 's nachts) en seizoenspatronen (zomer = warm, winter = koud).
+    - Verschillen tussen steden worden zichtbaar wanneer je van stad wisselt.
     """)
+
 
