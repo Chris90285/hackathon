@@ -35,7 +35,8 @@ view = st.sidebar.radio(
         "Tijdreeks per stad",
         "Persistentie per stad",
         "Seizoens- en dag/nacht patronen",
-        "Voorspelmodel"
+        "Simpel Voorspelmodel",
+        "Voorspelmodel Berggebieden"
     ]
 )
 
@@ -209,7 +210,7 @@ elif view == "Seizoens- en dag/nacht patronen":
 
 
 
-elif view == "Voorspelmodel":
+elif view == "Simpel Voorspelmodel":
     st.title("🤖 Simpel voorspellen van temperatuur")
 
     # Kies stad
@@ -245,4 +246,77 @@ elif view == "Voorspelmodel":
     fig.for_each_trace(lambda t: t.update(name="Echt" if t.name=="t2m_daily_mean_C" else "Voorspeld"))
 
     st.plotly_chart(fig, use_container_width=True)
+
+elif view == "Voorspelmodel Berggebieden":
+    st.title("🏔️ Temperatuurvoorspelling in berggebieden")
+    st.write("""
+    In berggebieden kan de temperatuur sterk variëren door hoogte, helling en lokale effecten.  
+    Hier vergelijken we een **simpel persistence-model** met een **seizoensgecorrigeerd regressiemodel**.
+    """)
+
+    # --- Bestanden ---
+    MOUNTAIN_FILES = {
+        "Alpen": "data_daily_Alpen.csv",
+        "Pyreneeën": "data_daily_Pyreneeen.csv",
+        "Karpaten": "data_daily_Karpaten.csv"
+    }
+
+    # --- Kies gebied ---
+    region = st.selectbox("Kies berggebied:", list(MOUNTAIN_FILES.keys()))
+    df = pd.read_csv(MOUNTAIN_FILES[region])
+    df["date"] = pd.to_datetime(df["date"])
+    df = df.sort_values("date").reset_index(drop=True)
+
+    # --- Aantal dagen vooruit ---
+    lag = st.slider("Aantal dagen vooruit voorspellen:", 1, 7, 1)
+
+    # --- Voeg seizoenscomponenten toe ---
+    df["day_of_year"] = df["date"].dt.dayofyear
+    df["sin_doy"] = np.sin(2 * np.pi * df["day_of_year"] / 365)
+    df["cos_doy"] = np.cos(2 * np.pi * df["day_of_year"] / 365)
+
+    # --- Simpel persistence model ---
+    df["pred_simple"] = df["t2m_daily_mean_C"].shift(lag)
+
+    # --- Seizoensgecorrigeerd lineair model ---
+    from sklearn.linear_model import LinearRegression
+
+    df["lag_temp"] = df["t2m_daily_mean_C"].shift(1)
+    df = df.dropna()
+
+    X = df[["lag_temp", "sin_doy", "cos_doy"]]
+    y = df["t2m_daily_mean_C"]
+
+    model = LinearRegression()
+    model.fit(X, y)
+
+    df["pred_reg"] = model.predict(X)
+
+    # --- Evaluatie ---
+    rmse_simple = np.sqrt(np.mean((df["t2m_daily_mean_C"] - df["pred_simple"]) ** 2))
+    rmse_reg = np.sqrt(np.mean((df["t2m_daily_mean_C"] - df["pred_reg"]) ** 2))
+
+    st.markdown(f"""
+    **Foutvergelijking ({region}, {lag}-dagen horizon):**
+    - 📘 Simpel model (persistence): {rmse_simple:.2f} °C  
+    - 📗 Seizoensmodel (lineaire regressie): {rmse_reg:.2f} °C  
+    """)
+
+    # --- Visualisatie ---
+    fig = px.line(
+        df,
+        x="date",
+        y=["t2m_daily_mean_C", "pred_simple", "pred_reg"],
+        labels={"value": "Temperatuur (°C)", "date": "Datum"},
+        title=f"Voorspelling vs. observatie in {region}"
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
+
+    st.markdown("""
+    **Interpretatie:**
+    - 🔵 Simpel model voorspelt temperatuur puur op basis van vorige dagen.  
+    - 🟢 Seizoensmodel houdt ook rekening met jaarlijkse cycli (koude winters, warme zomers).  
+    - In berggebieden is het seizoenseffect meestal sterker, dus het regressiemodel zal vaak beter presteren.
+    """)
 
