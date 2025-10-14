@@ -139,81 +139,74 @@ elif view == "Persistentie per stad":
 elif view == "Seizoens- en dag/nacht patronen":
     st.title("🌡️ Dag/nacht en seizoenspatronen per stad")
     st.write("""
-    Heatmap van gemiddelde temperatuur per uur (elke 3 uur) en per maand. 
+    Heatmap van gemiddelde temperatuur per uur (om de 3 uur) en per maand. 
     Hiermee zie je dag/nachtverschillen en seizoenspatronen op een overzichtelijke manier.
     """)
 
+    # === NIEUWE DATASETS VOOR UURLIJKSE WAARDEN ===
+    HOURLY_FILES = {
+        "Amsterdam": "hourly_Amsterdam.csv",
+        "Londen": "hourly_Londen.csv",
+        "Madrid": "hourly_Madrid.csv"
+    }
+
     # Kies stad
-    city = st.selectbox("Kies stad:", list(CITY_FILES.keys()))
-    df = load_city(CITY_FILES[city])
+    city = st.selectbox("Kies stad:", list(HOURLY_FILES.keys()), key="hourly_city")
 
-    # === Controleer kolommen en structureer data ===
-    # (werkt zowel met hourly_* bestanden als oudere formaten)
-    if "valid_time" in df.columns:
+    # Inladen uurlijkse data
+    @st.cache_data
+    def load_hourly(file):
+        df = pd.read_csv(file)
         df["valid_time"] = pd.to_datetime(df["valid_time"])
-        df["hour"] = df["valid_time"].dt.hour
-        df["month"] = df["valid_time"].dt.month
-        if "t2m_C" not in df.columns:
-            df["t2m_C"] = df["t2m"] - 273.15  # Kelvin → °C
-    else:
-        # Fallback voor andere datasets
-        if "date" in df.columns:
-            df["date"] = pd.to_datetime(df["date"])
-            if "hour" not in df.columns:
-                st.warning("⚠️ Deze dataset bevat geen uurlijkse waarden. Alleen dagelijkse gemiddelden zijn beschikbaar.")
-                df["hour"] = 0
-            if "month" not in df.columns:
-                df["month"] = df["date"].dt.month
-            if "t2m_daily_mean_C" in df.columns:
-                df["t2m_C"] = df["t2m_daily_mean_C"]
+        df["hour"] = df["hour"].astype(int)
+        df["month"] = df["month"].astype(int)
+        df["t2m_C"] = df["t2m_C"].astype(float)
+        return df
 
-    # === Filter: enkel elke 3 uur behouden (voor nette grafiek & kleinere datasets) ===
-    df = df[df["hour"] % 3 == 0]
+    try:
+        df = load_hourly(HOURLY_FILES[city])
+    except FileNotFoundError:
+        st.error(f"❌ Het bestand '{HOURLY_FILES[city]}' is niet gevonden. Upload de juiste `hourly_*.csv` bestanden.")
+        st.stop()
 
-    # === Bereken maandgemiddelde per uur ===
+    # Controle: check of uren aanwezig zijn
+    if df["hour"].nunique() < 8:
+        st.warning("⚠️ Let op: deze dataset bevat mogelijk geen volledige uurlijkse data (om de 3 uur).")
+
+    # Gemiddelde temperatuur per maand en uur (om de 3 uur)
     heatmap_data = df.groupby(["month", "hour"])["t2m_C"].mean().reset_index()
 
-    # === Maak pivot-tabel (maand vs uur) ===
+    # Pivot-tabel maken
     all_months = list(range(1, 13))
-    all_hours = list(range(0, 24, 3))  # om de 3 uur
+    all_hours = list(range(0, 24, 3))  # elke 3 uur
     pivot_table = heatmap_data.pivot(index="month", columns="hour", values="t2m_C")
     pivot_table = pivot_table.reindex(index=all_months, columns=all_hours)
     pivot_table = pivot_table.fillna(np.nan)
 
-    # === Plot heatmap ===
+    # Heatmap plotten
     fig = px.imshow(
         pivot_table,
         labels=dict(x="Uur van de dag", y="Maand", color="Temperatuur (°C)"),
-        x=list(range(0, 24, 3)),
+        x=all_hours,
         y=["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
         aspect="auto",
         color_continuous_scale="RdBu_r",
         title=f"Seizoens- en dag/nachtpatronen in {city} (2023)"
     )
 
-    # Hover details toevoegen
-    fig.update_traces(
-        hovertemplate="Maand: %{y}<br>Uur: %{x}<br>Temp: %{z:.1f} °C"
-    )
+    # Interactieve hover
+    fig.update_traces(hovertemplate="Maand: %{y}<br>Uur: %{x}<br>Temp: %{z:.1f} °C")
 
-    # Layout verbeteren
-    fig.update_layout(
-        xaxis_title="Uur van de dag (elke 3 uur)",
-        yaxis_title="Maand",
-        coloraxis_colorbar=dict(title="°C"),
-        margin=dict(l=40, r=40, t=60, b=40)
-    )
-
-    # === Plot tonen ===
     st.plotly_chart(fig, use_container_width=True)
 
-    # === Interpretatie ===
+    # Interpretatie
     st.markdown("""
     **Interpretatie:**
     - 🔴 Rood = warmere periodes, 🔵 Blauw = koudere periodes.
     - Je ziet duidelijk dag/nachtverschillen (temperatuur daalt 's nachts) en seizoenspatronen (zomer = warm, winter = koud).
     - In zuidelijke steden zoals Madrid blijft het 's nachts relatief warm, terwijl noordelijke steden sterkere nachtelijke afkoeling tonen.
     """)
+
 
 
 elif view == "Voorspelmodel":
