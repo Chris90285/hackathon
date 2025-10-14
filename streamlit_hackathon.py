@@ -34,7 +34,8 @@ view = st.sidebar.radio(
     [
         "Tijdreeks per stad",
         "Persistentie per stad",
-        "Seizoens- en dag/nacht patronen"
+        "Seizoens- en dag/nacht patronen",
+        "Voorspelmodel"
     ]
 )
 
@@ -147,7 +148,13 @@ elif view == "Seizoens- en dag/nacht patronen":
     df['hour'] = df['date'].dt.hour
     df['month'] = df['date'].dt.month
     heatmap_data = df.groupby(['month', 'hour'])['t2m_daily_mean_C'].mean().reset_index()
+
+    # Zorg dat alle maanden (1-12) en uren (0-23) aanwezig zijn
+    all_months = list(range(1, 13))
+    all_hours = list(range(24))
     pivot_table = heatmap_data.pivot(index='month', columns='hour', values='t2m_daily_mean_C')
+    pivot_table = pivot_table.reindex(index=all_months, columns=all_hours)
+    pivot_table = pivot_table.fillna(np.nan)  # vul ontbrekende combinaties met NaN
 
     # Plotten
     fig = px.imshow(
@@ -168,4 +175,41 @@ elif view == "Seizoens- en dag/nacht patronen":
     - Verschillen tussen steden worden zichtbaar wanneer je van stad wisselt.
     """)
 
+
+elif view == "Voorspelmodel":
+    st.title("🤖 Simpel voorspellen van temperatuur")
+
+    # Kies stad
+    city = st.selectbox("Kies stad:", list(CITY_FILES.keys()))
+    df = load_city(CITY_FILES[city])
+
+    # Sidebar: aantal dagen vooruit voorspellen
+    lag = st.slider("Aantal dagen vooruit voorspellen:", 1, 7, 1)
+
+    # Sorteer op datum
+    df = df.sort_values("date").reset_index(drop=True)
+
+    # Eenvoudig persistence model: T(t+lag) = T(t)
+    df['t2m_pred'] = df['t2m_daily_mean_C'].shift(lag)
+
+    # Drop eerste 'lag' dagen zonder voorspelling
+    df_eval = df.dropna(subset=['t2m_pred'])
+
+    # Bereken RMSE
+    rmse = np.sqrt(np.mean((df_eval['t2m_daily_mean_C'] - df_eval['t2m_pred'])**2))
+    st.markdown(f"**RMSE voor {lag} dagen vooruit:** {rmse:.2f} °C")
+
+    # Plot echte vs voorspelde temperatuur
+    fig = px.line(
+        df_eval,
+        x="date",
+        y=["t2m_daily_mean_C", "t2m_pred"],
+        labels={"value": "Temperatuur (°C)", "date": "Datum"},
+        title=f"Voorspelling vs echte temperatuur in {city} ({lag}-dagen horizon)"
+    )
+
+    # Pas namen van lijnen aan voor duidelijkheid
+    fig.for_each_trace(lambda t: t.update(name="Echt" if t.name=="t2m_daily_mean_C" else "Voorspeld"))
+
+    st.plotly_chart(fig, use_container_width=True)
 
