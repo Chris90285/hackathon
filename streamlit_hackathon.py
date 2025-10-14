@@ -3,6 +3,9 @@ import pandas as pd
 import plotly.express as px
 import numpy as np
 import os
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import mean_squared_error
+
 
 st.set_page_config(page_title="Temperatuuranalyse 2023", layout="wide")
 

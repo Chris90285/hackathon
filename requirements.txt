@@ -5,3 +5,4 @@ numpy
 xarray
 matplotlib
 tqdm
+scikit-learn
