@@ -248,7 +248,7 @@ elif view == "Simpel Voorspelmodel":
 elif view == "Voorspelmodellen per gebied":
     st.title("🌍 Temperatuurvoorspelling per gebied")
 
-    gebied_type = st.selectbox("Kies type gebied:", ["Berggebieden", "Zeegebieden"])
+    gebied_type = st.selectbox("Kies type gebied:", ["Berggebieden", "Zeegebieden", "Woestijngebieden"])
 
     # ========================
     # 🌄 B E R G G E B I E D E N
@@ -317,7 +317,7 @@ elif view == "Voorspelmodellen per gebied":
     # ====================
     # 🌊 Z E E G E B I E D E N
     # ====================
-    else:
+    elif gebied_type == "Zeegebieden":
         SEA_FILES = {
             "Noordzee": "data_daily_Noordzee.csv",
             "Middellandse Zee": "data_daily_MiddellandseZee.csv",
@@ -334,13 +334,9 @@ elif view == "Voorspelmodellen per gebied":
         lag = st.slider("Aantal dagen vooruit voorspellen:", 1, 7, 1, key="zee_lag")
 
         # ---- Nieuw zee-model: Moving Average + harmonische trend ----
-        # Bij zeeën is temperatuur trager en beïnvloed door trage stromingen → gladder model
         df["Simpel"] = df[temp_col].shift(lag)
-
-        # Gladde temperatuur met 7-daags moving average
         df["MA_7d"] = df[temp_col].rolling(window=7, center=True).mean()
 
-        # Seizoenscomponent met harmonische functies
         df["day_of_year"] = df["date"].dt.dayofyear
         df["sin1"] = np.sin(2 * np.pi * df["day_of_year"] / 365)
         df["cos1"] = np.cos(2 * np.pi * df["day_of_year"] / 365)
@@ -348,7 +344,6 @@ elif view == "Voorspelmodellen per gebied":
         df["cos2"] = np.cos(4 * np.pi * df["day_of_year"] / 365)
 
         df = df.dropna()
-
         X = df[["MA_7d", "sin1", "cos1", "sin2", "cos2"]]
         y = df[temp_col]
         reg = LinearRegression()
@@ -385,4 +380,74 @@ elif view == "Voorspelmodellen per gebied":
         - Het model gebruikt een 7-daags gemiddelde om korte schommelingen uit te filteren.  
         - Harmonische functies (sin/cos) vangen de jaarlijkse en halfjaarlijkse golfbewegingen.  
         - Dit geeft vaak een stabielere voorspelling dan een simpel persistence-model.
+        """)
+
+    # ========================
+    # 🏜️ W O E S T I J N G E B I E D E N
+    # ========================
+    else:
+        DESERT_FILES = {
+            "Tabernas": "data_daily_Tabernas.csv",
+            "Bardenas Reales": "data_daily_BardenasReales.csv",
+            "Oost-Kreta": "data_daily_OostKreta.csv"
+        }
+
+        region = st.selectbox("Kies woestijngebied:", list(DESERT_FILES.keys()))
+        df = pd.read_csv(DESERT_FILES[region])
+        df.columns = df.columns.str.replace(" ", "_")
+        df["date"] = pd.to_datetime(df["date"])
+        df = df.sort_values("date").reset_index(drop=True)
+
+        temp_col = [c for c in df.columns if "Gemiddelde" in c or "t2m" in c][0]
+        lag = st.slider("Aantal dagen vooruit voorspellen:", 1, 5, 1, key="woestijn_lag")
+
+        # ---- Woestijnmodel: AR(3) + dag-nachtcyclus ----
+        # Sterke dag-nacht schommelingen, dus korte-termijn autoregressie
+        df["lag1"] = df[temp_col].shift(1)
+        df["lag2"] = df[temp_col].shift(2)
+        df["lag3"] = df[temp_col].shift(3)
+
+        # Dag-nachtcyclus (snelle temperatuurwisselingen)
+        df["day_of_year"] = df["date"].dt.dayofyear
+        df["sin_day"] = np.sin(2 * np.pi * df["day_of_year"] / 30)  # kortere periode ~ maand
+
+        df["Simpel"] = df[temp_col].shift(lag)
+        df = df.dropna()
+
+        X = df[["lag1", "lag2", "lag3", "sin_day"]]
+        y = df[temp_col]
+        model = LinearRegression()
+        model.fit(X, y)
+        df["Woestijnmodel"] = model.predict(X)
+
+        mae_simple = np.mean(np.abs(df[temp_col] - df["Simpel"]))
+        mae_reg = np.mean(np.abs(df[temp_col] - df["Woestijnmodel"]))
+
+        st.markdown(f"""
+        **MAE ({region}, {lag}-dagen horizon):**
+        - Simpel model (persistence): {mae_simple:.2f} °C  
+        - Woestijnmodel (AR(3) + dag-nachtcyclus): {mae_reg:.2f} °C  
+        """)
+
+        fig = px.line(
+            df,
+            x="date",
+            y=[temp_col, "Simpel", "Woestijnmodel"],
+            labels={"value": "Temperatuur (°C)", "date": "Datum"},
+            title=f"Voorspelling vs. observatie in {region}"
+        )
+        fig.for_each_trace(lambda t: t.update(
+            name=("Werkelijke temperatuur" if t.name == temp_col else
+                  "Simpel model" if t.name == "Simpel" else
+                  "Woestijnmodel")
+        ))
+        _set_month_xaxis(fig, df["date"])
+        st.plotly_chart(fig, use_container_width=True)
+
+        st.markdown("""
+        **Interpretatie:**
+        - Woestijngebieden hebben sterke dagelijkse temperatuurvariaties.  
+        - Het AR(3)-model gebruikt de afgelopen drie dagen om korte-termijneffecten te vangen.  
+        - De extra sinuscomponent simuleert de maandelijkse schommeling (dag/nacht-effect).  
+        - Hierdoor is het model beter afgestemd op snelle temperatuurschommelingen dan de eerdere modellen.
         """)
