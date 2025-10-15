@@ -245,14 +245,196 @@ elif view == "Simpel Voorspelmodel":
 
 
 # ====== VOORSPELMODELLEN VOOR GEBIEDEN ======
+# ====== VOORSPELMODELLEN PER GEBIED (kaart + details) ======
 elif view == "Voorspelmodellen per gebied":
     st.title("🌍 Temperatuurvoorspelling per gebied")
 
-    gebied_type = st.selectbox("Kies type gebied:", ["Berggebieden", "Zeegebieden", "Woestijngebieden"])
+    # ------- region metadata (bestandsnaam + type + lat/lon) -------
+    REGION_META = {
+        # bergen
+        "Alpen":           {"file": "data_daily_Alpen.csv",           "type": "Berg",   "lat": 46.8, "lon": 9.8},
+        "Pyreneeën":       {"file": "data_daily_Pyreneeen.csv",      "type": "Berg",   "lat": 42.6, "lon": 0.5},
+        "Karpaten":        {"file": "data_daily_Karpaten.csv",      "type": "Berg",   "lat": 47.0, "lon": 24.0},
+        # zee
+        "Noordzee":        {"file": "data_daily_Noordzee.csv",      "type": "Zee",    "lat": 55.0, "lon": 3.0},
+        "MiddellandseZee":{"file": "data_daily_MiddellseZee.csv",  "type": "Zee",    "lat": 42.5, "lon": 5.0},  # let op bestandsnaam
+        "AtlantischeOceaan":{"file":"data_daily_AtlantischeOceaan.csv","type":"Zee","lat":41.0, "lon": -10.0},
+        # woestijn
+        "Tabernas":        {"file": "data_daily_Tabernas.csv",      "type": "Woestijn", "lat": 37.0, "lon": -2.4},
+        "Bardenas Reales": {"file": "data_daily_BardenasReales.csv","type": "Woestijn", "lat": 42.2, "lon": -1.5},
+        "Oost-Kreta":      {"file": "data_daily_OostKreta.csv",     "type": "Woestijn", "lat": 35.1, "lon": 26.1},
+    }
 
-    # ========================
-    # 🌄 B E R G G E B I E D E N
-    # ========================
+    # ------- kaart controls -------
+    st.markdown("**Interactiekaart — MAE per locatie**")
+    lag_for_map = st.slider("Voorspellingshorizon (dagen vooruit) voor kaart:", 1, 7, 1, key="map_lag")
+    mae_metric = st.selectbox("Kleur op:", ["MAE model", "MAE simpel"], index=0, key="map_metric")
+    show_types = st.multiselect("Toon gebiedstypes:", ["Berg", "Zee", "Woestijn"], default=["Berg", "Zee", "Woestijn"], key="map_types")
+
+    # ------- helper: detecteer temperatuurkolom -------
+    def _detect_temp_col(df):
+        df.columns = df.columns.str.replace(" ", "_")
+        candidates = [c for c in df.columns if ("Gemiddelde" in c) or ("t2m" in c.lower()) or ("t2m" in c)]
+        if len(candidates) == 0:
+            raise KeyError("Geen temperatuurkolom gevonden")
+        return candidates[0]
+
+    # ------- bereken MAE per regio voor gegeven lag -------
+    rows = []
+    for region, meta in REGION_META.items():
+        # filter op type
+        if meta["type"] not in show_types:
+            continue
+        file = meta["file"]
+        if not os.path.exists(file):
+            # bestand niet gevonden — sla over maar geef feedback
+            rows.append({
+                "region": region,
+                "type": meta["type"],
+                "lat": meta["lat"],
+                "lon": meta["lon"],
+                "mae_simple": np.nan,
+                "mae_model": np.nan,
+                "notes": f"file {file} missing"
+            })
+            continue
+        try:
+            df = pd.read_csv(file)
+        except Exception as e:
+            rows.append({
+                "region": region,
+                "type": meta["type"],
+                "lat": meta["lat"],
+                "lon": meta["lon"],
+                "mae_simple": np.nan,
+                "mae_model": np.nan,
+                "notes": f"read error"
+            })
+            continue
+
+        # prepare
+        df.columns = df.columns.str.replace(" ", "_")
+        if "date" in df.columns:
+            df["date"] = pd.to_datetime(df["date"])
+        temp_col = None
+        try:
+            temp_col = _detect_temp_col(df)
+        except KeyError:
+            rows.append({
+                "region": region,
+                "type": meta["type"],
+                "lat": meta["lat"],
+                "lon": meta["lon"],
+                "mae_simple": np.nan,
+                "mae_model": np.nan,
+                "notes": "no temp col"
+            })
+            continue
+
+        # simple persistence MAE calculation (we will align indices when comparing)
+        df_sorted = df.sort_values("date").reset_index(drop=True)
+        df_sorted["Simpel"] = df_sorted[temp_col].shift(lag_for_map)
+
+        # build model depending on type
+        if meta["type"] == "Berg":
+            # same as your bergmodel: lag1 + seasonal sin/cos
+            df_sorted["day_of_year"] = df_sorted["date"].dt.dayofyear
+            df_sorted["sin_doy"] = np.sin(2 * np.pi * df_sorted["day_of_year"] / 365)
+            df_sorted["cos_doy"] = np.cos(2 * np.pi * df_sorted["day_of_year"] / 365)
+            df_sorted["lag_temp"] = df_sorted[temp_col].shift(1)
+            df_model = df_sorted.dropna(subset=[temp_col, "lag_temp", "sin_doy", "cos_doy", "Simpel"])
+            if len(df_model) < 2:
+                mae_model = np.nan
+                mae_simple = np.nan
+            else:
+                X = df_model[["lag_temp", "sin_doy", "cos_doy"]]
+                y = df_model[temp_col]
+                reg = LinearRegression().fit(X, y)
+                preds = reg.predict(X)
+                mae_model = np.mean(np.abs(y - preds))
+                # simple MAE on same index
+                mae_simple = np.mean(np.abs(df_model[temp_col] - df_model["Simpel"]))
+        elif meta["type"] == "Zee":
+            # Zeemodel: MA_7d + harmonics
+            df_sorted["MA_7d"] = df_sorted[temp_col].rolling(window=7, center=True).mean()
+            df_sorted["day_of_year"] = df_sorted["date"].dt.dayofyear
+            df_sorted["sin1"] = np.sin(2 * np.pi * df_sorted["day_of_year"] / 365)
+            df_sorted["cos1"] = np.cos(2 * np.pi * df_sorted["day_of_year"] / 365)
+            df_sorted["sin2"] = np.sin(4 * np.pi * df_sorted["day_of_year"] / 365)
+            df_sorted["cos2"] = np.cos(4 * np.pi * df_sorted["day_of_year"] / 365)
+            df_model = df_sorted.dropna(subset=[temp_col, "MA_7d", "sin1", "cos1", "Simpel"])
+            if len(df_model) < 2:
+                mae_model = np.nan
+                mae_simple = np.nan
+            else:
+                X = df_model[["MA_7d", "sin1", "cos1", "sin2", "cos2"]]
+                y = df_model[temp_col]
+                reg = LinearRegression().fit(X, y)
+                preds = reg.predict(X)
+                mae_model = np.mean(np.abs(y - preds))
+                mae_simple = np.mean(np.abs(df_model[temp_col] - df_model["Simpel"]))
+        else:  # Woestijn
+            # Woestijnmodel: AR(3) + korte dag-nacht sinus
+            df_sorted["lag1"] = df_sorted[temp_col].shift(1)
+            df_sorted["lag2"] = df_sorted[temp_col].shift(2)
+            df_sorted["lag3"] = df_sorted[temp_col].shift(3)
+            # kortere periode sinus to capture faster cycles (approx)
+            df_sorted["day_of_year"] = df_sorted["date"].dt.dayofyear
+            df_sorted["sin_day"] = np.sin(2 * np.pi * df_sorted["day_of_year"] / 30)
+            df_model = df_sorted.dropna(subset=[temp_col, "lag1", "lag2", "lag3", "sin_day", "Simpel"])
+            if len(df_model) < 2:
+                mae_model = np.nan
+                mae_simple = np.nan
+            else:
+                X = df_model[["lag1", "lag2", "lag3", "sin_day"]]
+                y = df_model[temp_col]
+                reg = LinearRegression().fit(X, y)
+                preds = reg.predict(X)
+                mae_model = np.mean(np.abs(y - preds))
+                mae_simple = np.mean(np.abs(df_model[temp_col] - df_model["Simpel"]))
+
+        rows.append({
+            "region": region,
+            "type": meta["type"],
+            "lat": meta["lat"],
+            "lon": meta["lon"],
+            "mae_simple": float(mae_simple) if not pd.isna(mae_simple) else np.nan,
+            "mae_model": float(mae_model) if not pd.isna(mae_model) else np.nan,
+            "notes": ""
+        })
+
+    df_map = pd.DataFrame(rows)
+
+    # ------- kaart plotten (Plotly) -------
+    if df_map.shape[0] == 0:
+        st.info("Geen regio's gevonden om te tonen op de kaart.")
+    else:
+        color_col = "mae_model" if mae_metric == "MAE model" else "mae_simple"
+        fig_map = px.scatter_geo(
+            df_map,
+            lat="lat",
+            lon="lon",
+            hover_name="region",
+            hover_data=["type", "mae_simple", "mae_model", "notes"],
+            color=color_col,
+            size=color_col,
+            projection="natural earth",
+            color_continuous_scale="YlOrRd",
+            title=f"MAE per locatie — {mae_metric} (lag={lag_for_map}d)",
+            symbol="type",
+            scope="europe"
+        )
+        fig_map.update_layout(legend_title_text="Gebiedstype")
+        st.plotly_chart(fig_map, use_container_width=True, theme="streamlit")
+
+    st.markdown("---")
+    st.write("### Details per gebied (zelfde UI als eerder)")
+    # Nu de bestaande UI: gebruiker kan alsnog kiezen berg/zee/woestijn en zien details + grafieken
+    gebied_type = st.selectbox("Kies type gebied:", ["Berggebieden", "Zeegebieden", "Woestijngebieden"], key="detail_area_choice")
+
+    # ======================================================================
+    # De rest: precieze gebied-specifieke UI en modellen (kopie van je vorige logica)
+    # ======================================================================
     if gebied_type == "Berggebieden":
         MOUNTAIN_FILES = {
             "Alpen": "data_daily_Alpen.csv",
@@ -260,16 +442,15 @@ elif view == "Voorspelmodellen per gebied":
             "Karpaten": "data_daily_Karpaten.csv"
         }
 
-        region = st.selectbox("Kies berggebied:", list(MOUNTAIN_FILES.keys()))
+        region = st.selectbox("Kies berggebied:", list(MOUNTAIN_FILES.keys()), key="berg_detail_region")
         df = pd.read_csv(MOUNTAIN_FILES[region])
         df.columns = df.columns.str.replace(" ", "_")
         df["date"] = pd.to_datetime(df["date"])
         df = df.sort_values("date").reset_index(drop=True)
 
         temp_col = [c for c in df.columns if "Gemiddelde" in c or "t2m" in c][0]
-        lag = st.slider("Aantal dagen vooruit voorspellen:", 1, 7, 1, key="berg_lag")
+        lag = st.slider("Aantal dagen vooruit voorspellen:", 1, 7, 1, key="berg_lag_detail")
 
-        # ---- Seizoenscomponent + persistence ----
         df["day_of_year"] = df["date"].dt.dayofyear
         df["sin_doy"] = np.sin(2 * np.pi * df["day_of_year"] / 365)
         df["cos_doy"] = np.cos(2 * np.pi * df["day_of_year"] / 365)
@@ -314,29 +495,24 @@ elif view == "Voorspelmodellen per gebied":
         - In berggebieden is het seizoenseffect meestal sterker, dus het regressiemodel presteert vaak beter.
         """)
 
-    # ====================
-    # 🌊 Z E E G E B I E D E N
-    # ====================
     elif gebied_type == "Zeegebieden":
         SEA_FILES = {
             "Noordzee": "data_daily_Noordzee.csv",
-            "Middellandse Zee": "data_daily_MiddellandseZee.csv",
+            "Middellandse Zee": "data_daily_MiddellseZee.csv",
             "Atlantische Oceaan": "data_daily_AtlantischeOceaan.csv"
         }
 
-        region = st.selectbox("Kies zeegebied:", list(SEA_FILES.keys()))
+        region = st.selectbox("Kies zeegebied:", list(SEA_FILES.keys()), key="zee_detail_region")
         df = pd.read_csv(SEA_FILES[region])
         df.columns = df.columns.str.replace(" ", "_")
         df["date"] = pd.to_datetime(df["date"])
         df = df.sort_values("date").reset_index(drop=True)
 
         temp_col = [c for c in df.columns if "Gemiddelde" in c or "t2m" in c][0]
-        lag = st.slider("Aantal dagen vooruit voorspellen:", 1, 7, 1, key="zee_lag")
+        lag = st.slider("Aantal dagen vooruit voorspellen:", 1, 7, 1, key="zee_lag_detail")
 
-        # ---- Nieuw zee-model: Moving Average + harmonische trend ----
         df["Simpel"] = df[temp_col].shift(lag)
         df["MA_7d"] = df[temp_col].rolling(window=7, center=True).mean()
-
         df["day_of_year"] = df["date"].dt.dayofyear
         df["sin1"] = np.sin(2 * np.pi * df["day_of_year"] / 365)
         df["cos1"] = np.cos(2 * np.pi * df["day_of_year"] / 365)
@@ -382,38 +558,30 @@ elif view == "Voorspelmodellen per gebied":
         - Dit geeft vaak een stabielere voorspelling dan een simpel persistence-model.
         """)
 
-    # ========================
-    # 🏜️ W O E S T I J N G E B I E D E N
-    # ========================
-    else:
+    else:  # Woestijngebieden
         DESERT_FILES = {
             "Tabernas": "data_daily_Tabernas.csv",
             "Bardenas Reales": "data_daily_BardenasReales.csv",
             "Oost-Kreta": "data_daily_OostKreta.csv"
         }
 
-        region = st.selectbox("Kies woestijngebied:", list(DESERT_FILES.keys()))
+        region = st.selectbox("Kies woestijngebied:", list(DESERT_FILES.keys()), key="woestijn_detail_region")
         df = pd.read_csv(DESERT_FILES[region])
         df.columns = df.columns.str.replace(" ", "_")
         df["date"] = pd.to_datetime(df["date"])
         df = df.sort_values("date").reset_index(drop=True)
 
         temp_col = [c for c in df.columns if "Gemiddelde" in c or "t2m" in c][0]
-        lag = st.slider("Aantal dagen vooruit voorspellen:", 1, 5, 1, key="woestijn_lag")
+        lag = st.slider("Aantal dagen vooruit voorspellen:", 1, 5, 1, key="woestijn_lag_detail")
 
-        # ---- Woestijnmodel: AR(3) + dag-nachtcyclus ----
-        # Sterke dag-nacht schommelingen, dus korte-termijn autoregressie
         df["lag1"] = df[temp_col].shift(1)
         df["lag2"] = df[temp_col].shift(2)
         df["lag3"] = df[temp_col].shift(3)
-
-        # Dag-nachtcyclus (snelle temperatuurwisselingen)
         df["day_of_year"] = df["date"].dt.dayofyear
-        df["sin_day"] = np.sin(2 * np.pi * df["day_of_year"] / 30)  # kortere periode ~ maand
-
+        df["sin_day"] = np.sin(2 * np.pi * df["day_of_year"] / 30)
         df["Simpel"] = df[temp_col].shift(lag)
-        df = df.dropna()
 
+        df = df.dropna()
         X = df[["lag1", "lag2", "lag3", "sin_day"]]
         y = df[temp_col]
         model = LinearRegression()
