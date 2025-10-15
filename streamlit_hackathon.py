@@ -77,7 +77,7 @@ if view == "Tijdreeks per stad":
         for city in selected_cities:
             df = load_city(CITY_FILES[city])
             df_filtered = df[df["date"].dt.month.isin(maanden)]
-            fig.add_scatter(x=df_filtered["date"], y=df_filtered["t2m_daily_mean_C"], mode="lines", name=city)
+            fig.add_scatter(x=df_filtered["date"], y=df_filtered["Dagelijks Gemiddelde"], mode="lines", name=city)
     else:
         # Single-city plot
         city = st.selectbox("Kies stad:", list(CITY_FILES.keys()))
@@ -86,9 +86,9 @@ if view == "Tijdreeks per stad":
         fig = px.line(
             df_filtered,
             x="date",
-            y="t2m_daily_mean_C",
+            y="Dagelijks Gemiddelde",
             title=f"Dagelijkse gemiddelde temperatuur in {city} (2023)",
-            labels={"t2m_daily_mean_C": "°C"}
+            labels={"Dagelijks Gemiddelde": "°C"}
         )
 
     st.plotly_chart(fig, use_container_width=True)
@@ -96,7 +96,7 @@ if view == "Tijdreeks per stad":
 
 
 elif view == "Persistentie per stad":
-    st.title("🔁 Temperatuurpersistentie per stad")
+    st.title("Temperatuurpersistentie per stad")
     st.write('Betekenis: Hoe lang de temperatuur op een plek “hetzelfde gedrag” blijft vertonen voordat het terugkeert naar normaal.')
     st.write('Een voorbeeld hiervan is een hittegolf, waardoor het meerdere dagen warmer blijft dan gemiddeld.')
     st.write('Een hoge persistentie betekent dat de temperatuur traag verandert; een lage persistentie betekent dat de temperatuur snel fluctueert.')
@@ -109,7 +109,7 @@ elif view == "Persistentie per stad":
 
     # Anomalie berekenen
     df["month"] = df["date"].dt.month
-    df["anomaly"] = df["t2m_daily_mean_C"] - df.groupby("month")["t2m_daily_mean_C"].transform("mean")
+    df["anomaly"] = df["Dagelijks Gemiddelde"] - df.groupby("month")["Dagelijks Gemiddelde"].transform("mean")
 
     # Autocorrelatie berekenen
     max_lag = 30
@@ -144,13 +144,13 @@ elif view == "Persistentie per stad":
 
     # Toont geheugenlengte
     if memory_days:
-        st.markdown(f"📈 **Geheugenlengte:** ± {memory_days} dagen")
+        st.markdown(f"**Geheugenlengte:** ± {memory_days} dagen")
     else:
         st.markdown("⚪ Geen duidelijke grens (correlatie blijft hoog of fluctueert).")
 
 
 elif view == "Seizoens- en dag/nacht patronen":
-    st.title("🌡️ Dag/nacht en seizoenspatronen per stad")
+    st.title("Dag/nacht en seizoenspatronen per stad")
     st.write("""
     Heatmap van gemiddelde temperatuur per uur (om de 3 uur) en per maand. 
     Hiermee zie je dag/nachtverschillen en seizoenspatronen op een overzichtelijke manier.
@@ -223,7 +223,7 @@ elif view == "Seizoens- en dag/nacht patronen":
 
 
 elif view == "Simpel Voorspelmodel":
-    st.title("🤖 Simpel voorspellen van temperatuur")
+    st.title("Simpel voorspellen van temperatuur")
 
     # Kies stad
     city = st.selectbox("Kies stad:", list(CITY_FILES.keys()))
@@ -236,13 +236,13 @@ elif view == "Simpel Voorspelmodel":
     df = df.sort_values("date").reset_index(drop=True)
 
     # Eenvoudig persistence model: T(t+lag) = T(t)
-    df['t2m_pred'] = df['t2m_daily_mean_C'].shift(lag)
+    df['t2m_pred'] = df['Dagelijks Gemiddelde'].shift(lag)
 
     # Drop eerste 'lag' dagen zonder voorspelling
     df_eval = df.dropna(subset=['t2m_pred'])
 
     # Bereken MAE
-    mae = np.mean(np.abs(df_eval['t2m_daily_mean_C'] - df_eval['t2m_pred']))
+    mae = np.mean(np.abs(df_eval['Dagelijks Gemiddelde'] - df_eval['t2m_pred']))
     st.markdown(f"**MAE voor {lag} dagen vooruit:** {mae:.2f} °C")
 
 
@@ -250,21 +250,21 @@ elif view == "Simpel Voorspelmodel":
     fig = px.line(
         df_eval,
         x="date",
-        y=["t2m_daily_mean_C", "t2m_pred"],
+        y=["Dagelijks Gemiddelde", "t2m_pred"],
         labels={"value": "Temperatuur (°C)", "date": "Datum"},
         title=f"Voorspelling vs echte temperatuur in {city} ({lag}-dagen vooruit)"
     )
 
     # Pas namen van lijnen aan voor duidelijkheid
-    fig.for_each_trace(lambda t: t.update(name="Echt" if t.name=="t2m_daily_mean_C" else "Voorspeld"))
+    fig.for_each_trace(lambda t: t.update(name="Echt" if t.name=="Dagelijks Gemiddelde" else "Voorspeld"))
 
     st.plotly_chart(fig, use_container_width=True)
 
 elif view == "Voorspelmodel Berggebieden":
-    st.title("🏔️ Temperatuurvoorspelling in berggebieden")
+    st.title("Temperatuurvoorspelling in berggebieden")
     st.write("""
     In berggebieden kan de temperatuur sterk variëren door hoogte, helling en lokale effecten.  
-    Hier vergelijken we een **simpel persistence-model** met een **seizoensgecorrigeerd regressiemodel**.
+    Hier vergelijken we een **simpel persistentie model** met een **seizoensmodel (lineaire regressie)**.
     """)
 
     # --- Bestanden ---
@@ -289,16 +289,16 @@ elif view == "Voorspelmodel Berggebieden":
     df["cos_doy"] = np.cos(2 * np.pi * df["day_of_year"] / 365)
 
     # --- Simpel persistence model ---
-    df["Simpel"] = df["t2m_daily_mean_C"].shift(lag)
+    df["Simpel"] = df["Dagelijks Gemiddelde"].shift(lag)
 
     # --- Seizoensgecorrigeerd lineair model ---
     from sklearn.linear_model import LinearRegression
 
-    df["lag_temp"] = df["t2m_daily_mean_C"].shift(1)
+    df["lag_temp"] = df["Dagelijks Gemiddelde"].shift(1)
     df = df.dropna()
 
     X = df[["lag_temp", "sin_doy", "cos_doy"]]
-    y = df["t2m_daily_mean_C"]
+    y = df["Dagelijks Gemiddelde"]
 
     model = LinearRegression()
     model.fit(X, y)
@@ -306,13 +306,13 @@ elif view == "Voorspelmodel Berggebieden":
     df["Seizoensmodel"] = model.predict(X)
 
     # --- Evaluatie (MAE) ---
-    mae_simple = np.mean(np.abs(df["t2m_daily_mean_C"] - df["Simpel"]))
-    mae_reg = np.mean(np.abs(df["t2m_daily_mean_C"] - df["Seizoensmodel"]))
+    mae_simple = np.mean(np.abs(df["Dagelijks Gemiddelde"] - df["Simpel"]))
+    mae_reg = np.mean(np.abs(df["Dagelijks Gemiddelde"] - df["Seizoensmodel"]))
 
     st.markdown(f"""
     **MAE ({region}, {lag}-dagen horizon):**
-    - 📘 Simpel model (persistence): {mae_simple:.2f} °C  
-    - 📗 Seizoensmodel (lineaire regressie): {mae_reg:.2f} °C  
+    - Simpel model (persistence): {mae_simple:.2f} °C  
+    - Seizoensmodel (lineaire regressie): {mae_reg:.2f} °C  
     """)
 
 
@@ -320,7 +320,7 @@ elif view == "Voorspelmodel Berggebieden":
     fig = px.line(
         df,
         x="date",
-        y=["t2m_daily_mean_C", "Simpel", "Seizoensmodel"],
+        y=["Dagelijks Gemiddelde", "Simpel", "Seizoensmodel"],
         labels={"value": "Temperatuur (°C)", "date": "Datum"},
         title=f"Voorspelling vs. observatie in {region}"
     )
@@ -329,8 +329,8 @@ elif view == "Voorspelmodel Berggebieden":
 
     st.markdown("""
     **Interpretatie:**
-    - 🔵 Simpel model voorspelt temperatuur puur op basis van vorige dagen.  
-    - 🟢 Seizoensmodel houdt ook rekening met jaarlijkse cycli (koude winters, warme zomers).  
+    - Simpel model voorspelt temperatuur puur op basis van vorige dagen.  
+    - Seizoensmodel houdt ook rekening met jaarlijkse cycli (koude winters, warme zomers).  
     - In berggebieden is het seizoenseffect meestal sterker, dus het regressiemodel zal vaak beter presteren.
     """)
 
