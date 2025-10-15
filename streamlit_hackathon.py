@@ -244,73 +244,145 @@ elif view == "Simpel Voorspelmodel":
     st.plotly_chart(fig, use_container_width=True)
 
 
-# ====== BERGGEBIEDEN ======
-elif view == "Voorspelmodel Berggebieden":
-    st.title("Temperatuurvoorspelling in berggebieden")
+# ====== VOORSPELMODELLEN VOOR GEBIEDEN ======
+elif view == "Voorspelmodellen per gebied":
+    st.title("🌍 Temperatuurvoorspelling per gebied")
 
-    MOUNTAIN_FILES = {
-        "Alpen": "data_daily_Alpen.csv",
-        "Pyreneeën": "data_daily_Pyreneeen.csv",
-        "Karpaten": "data_daily_Karpaten.csv"
-    }
+    gebied_type = st.selectbox("Kies type gebied:", ["Berggebieden", "Zeegebieden"])
 
-    region = st.selectbox("Kies berggebied:", list(MOUNTAIN_FILES.keys()))
-    df = pd.read_csv(MOUNTAIN_FILES[region])
-    df.columns = df.columns.str.replace(" ", "_")
-    df["date"] = pd.to_datetime(df["date"])
-    df = df.sort_values("date").reset_index(drop=True)
+    # ========================
+    # 🌄 B E R G G E B I E D E N
+    # ========================
+    if gebied_type == "Berggebieden":
+        MOUNTAIN_FILES = {
+            "Alpen": "data_daily_Alpen.csv",
+            "Pyreneeën": "data_daily_Pyreneeen.csv",
+            "Karpaten": "data_daily_Karpaten.csv"
+        }
 
-    temp_col = [c for c in df.columns if "Gemiddelde" in c or "t2m" in c][0]
-    lag = st.slider("Aantal dagen vooruit voorspellen:", 1, 7, 1)
+        region = st.selectbox("Kies berggebied:", list(MOUNTAIN_FILES.keys()))
+        df = pd.read_csv(MOUNTAIN_FILES[region])
+        df.columns = df.columns.str.replace(" ", "_")
+        df["date"] = pd.to_datetime(df["date"])
+        df = df.sort_values("date").reset_index(drop=True)
 
-    df["day_of_year"] = df["date"].dt.dayofyear
-    df["sin_doy"] = np.sin(2 * np.pi * df["day_of_year"] / 365)
-    df["cos_doy"] = np.cos(2 * np.pi * df["day_of_year"] / 365)
-    df["Simpel"] = df[temp_col].shift(lag)
+        temp_col = [c for c in df.columns if "Gemiddelde" in c or "t2m" in c][0]
+        lag = st.slider("Aantal dagen vooruit voorspellen:", 1, 7, 1, key="berg_lag")
 
-    df["lag_temp"] = df[temp_col].shift(1)
-    df = df.dropna()
+        # ---- Seizoenscomponent + persistence ----
+        df["day_of_year"] = df["date"].dt.dayofyear
+        df["sin_doy"] = np.sin(2 * np.pi * df["day_of_year"] / 365)
+        df["cos_doy"] = np.cos(2 * np.pi * df["day_of_year"] / 365)
+        df["Simpel"] = df[temp_col].shift(lag)
+        df["lag_temp"] = df[temp_col].shift(1)
+        df = df.dropna()
 
-    X = df[["lag_temp", "sin_doy", "cos_doy"]]
-    y = df[temp_col]
-    model = LinearRegression()
-    model.fit(X, y)
-    df["Seizoensmodel"] = model.predict(X)
+        X = df[["lag_temp", "sin_doy", "cos_doy"]]
+        y = df[temp_col]
+        model = LinearRegression()
+        model.fit(X, y)
+        df["Seizoensmodel"] = model.predict(X)
 
-    mae_simple = np.mean(np.abs(df[temp_col] - df["Simpel"]))
-    mae_reg = np.mean(np.abs(df[temp_col] - df["Seizoensmodel"]))
+        mae_simple = np.mean(np.abs(df[temp_col] - df["Simpel"]))
+        mae_reg = np.mean(np.abs(df[temp_col] - df["Seizoensmodel"]))
 
-    st.markdown(f"""
-    **MAE ({region}, {lag}-dagen horizon):**
-    - Simpel model (persistence): {mae_simple:.2f} °C  
-    - Seizoensmodel (lineaire regressie): {mae_reg:.2f} °C  
-    """)
+        st.markdown(f"""
+        **MAE ({region}, {lag}-dagen horizon):**
+        - Simpel model (persistence): {mae_simple:.2f} °C  
+        - Seizoensmodel (lineaire regressie): {mae_reg:.2f} °C  
+        """)
 
-    fig = px.line(
-        df,
-        x="date",
-        y=[temp_col, "Simpel", "Seizoensmodel"],
-        labels={"value": "Temperatuur (°C)", "date": "Datum"},
-        title=f"Voorspelling vs. observatie in {region}"
-    )
-
-    # Mooie legenda-namen
-    fig.for_each_trace(lambda t: t.update(
-        name=(
-            "Werkelijke temperatuur" if t.name == temp_col
-            else "Simpel model" if t.name == "Simpel"
-            else "Seizoensmodel"
+        fig = px.line(
+            df,
+            x="date",
+            y=[temp_col, "Simpel", "Seizoensmodel"],
+            labels={"value": "Temperatuur (°C)", "date": "Datum"},
+            title=f"Voorspelling vs. observatie in {region}"
         )
-    ))
+        fig.for_each_trace(lambda t: t.update(
+            name=("Werkelijke temperatuur" if t.name == temp_col else
+                  "Simpel model" if t.name == "Simpel" else
+                  "Seizoensmodel")
+        ))
+        _set_month_xaxis(fig, df["date"])
+        st.plotly_chart(fig, use_container_width=True)
 
-    # zet x-as naar maandlabels zonder jaartal
-    _set_month_xaxis(fig, df["date"])
+        st.markdown("""
+        **Interpretatie:**
+        - Simpel model voorspelt temperatuur puur op basis van vorige dagen.  
+        - Seizoensmodel houdt rekening met jaarlijkse cycli (koude winters, warme zomers).  
+        - In berggebieden is het seizoenseffect meestal sterker, dus het regressiemodel presteert vaak beter.
+        """)
 
-    st.plotly_chart(fig, use_container_width=True)
+    # ====================
+    # 🌊 Z E E G E B I E D E N
+    # ====================
+    else:
+        SEA_FILES = {
+            "Noordzee": "data_daily_Noordzee.csv",
+            "Middellandse Zee": "data_daily_MiddellandseZee.csv",
+            "Atlantische Oceaan": "data_daily_AtlantischeOceaan.csv"
+        }
 
-    st.markdown("""
-    **Interpretatie:**
-    - Simpel model voorspelt temperatuur puur op basis van vorige dagen.  
-    - Seizoensmodel houdt rekening met jaarlijkse cycli (koude winters, warme zomers).  
-    - In berggebieden is het seizoenseffect meestal sterker, dus het regressiemodel presteert vaak beter.
-    """)
+        region = st.selectbox("Kies zeegebied:", list(SEA_FILES.keys()))
+        df = pd.read_csv(SEA_FILES[region])
+        df.columns = df.columns.str.replace(" ", "_")
+        df["date"] = pd.to_datetime(df["date"])
+        df = df.sort_values("date").reset_index(drop=True)
+
+        temp_col = [c for c in df.columns if "Gemiddelde" in c or "t2m" in c][0]
+        lag = st.slider("Aantal dagen vooruit voorspellen:", 1, 7, 1, key="zee_lag")
+
+        # ---- Nieuw zee-model: Moving Average + harmonische trend ----
+        # Bij zeeën is temperatuur trager en beïnvloed door trage stromingen → gladder model
+        df["Simpel"] = df[temp_col].shift(lag)
+
+        # Gladde temperatuur met 7-daags moving average
+        df["MA_7d"] = df[temp_col].rolling(window=7, center=True).mean()
+
+        # Seizoenscomponent met harmonische functies
+        df["day_of_year"] = df["date"].dt.dayofyear
+        df["sin1"] = np.sin(2 * np.pi * df["day_of_year"] / 365)
+        df["cos1"] = np.cos(2 * np.pi * df["day_of_year"] / 365)
+        df["sin2"] = np.sin(4 * np.pi * df["day_of_year"] / 365)
+        df["cos2"] = np.cos(4 * np.pi * df["day_of_year"] / 365)
+
+        df = df.dropna()
+
+        X = df[["MA_7d", "sin1", "cos1", "sin2", "cos2"]]
+        y = df[temp_col]
+        reg = LinearRegression()
+        reg.fit(X, y)
+        df["Zeemodel"] = reg.predict(X)
+
+        mae_simple = np.mean(np.abs(df[temp_col] - df["Simpel"]))
+        mae_reg = np.mean(np.abs(df[temp_col] - df["Zeemodel"]))
+
+        st.markdown(f"""
+        **MAE ({region}, {lag}-dagen horizon):**
+        - Simpel model (persistence): {mae_simple:.2f} °C  
+        - Zeemodel (harmonisch + moving average): {mae_reg:.2f} °C  
+        """)
+
+        fig = px.line(
+            df,
+            x="date",
+            y=[temp_col, "Simpel", "Zeemodel"],
+            labels={"value": "Temperatuur (°C)", "date": "Datum"},
+            title=f"Voorspelling vs. observatie in {region}"
+        )
+        fig.for_each_trace(lambda t: t.update(
+            name=("Werkelijke temperatuur" if t.name == temp_col else
+                  "Simpel model" if t.name == "Simpel" else
+                  "Zeemodel")
+        ))
+        _set_month_xaxis(fig, df["date"])
+        st.plotly_chart(fig, use_container_width=True)
+
+        st.markdown("""
+        **Interpretatie:**
+        - In zeegebieden veranderen temperaturen trager door de hoge warmtecapaciteit van water.  
+        - Het model gebruikt een 7-daags gemiddelde om korte schommelingen uit te filteren.  
+        - Harmonische functies (sin/cos) vangen de jaarlijkse en halfjaarlijkse golfbewegingen.  
+        - Dit geeft vaak een stabielere voorspelling dan een simpel persistence-model.
+        """)
