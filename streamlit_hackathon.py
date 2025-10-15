@@ -17,6 +17,26 @@ CITY_FILES = {
 }
 MAP_FILE = "temperature_persistence_map.csv"
 
+# ====== HELPERS ======
+def _set_month_xaxis(fig, date_series):
+    """
+    Zet x-as ticks op maandlabels (Jan, Feb, ...) zonder jaartal.
+    date_series: pd.Series met datetime-waarden
+    """
+    if date_series.isna().all():
+        return
+    min_date = pd.to_datetime(date_series.min())
+    max_date = pd.to_datetime(date_series.max())
+    # Start op de eerste van de maand van min_date
+    start = pd.Timestamp(min_date.year, min_date.month, 1)
+    # Maak ticks voor elke maand tussen start en max_date
+    ticks = pd.date_range(start=start, end=max_date, freq='MS')
+    if len(ticks) == 0:
+        # fallback: gebruik min_date als enkele tick
+        ticks = [min_date]
+    ticktext = [d.strftime("%b") for d in ticks]
+    fig.update_xaxes(tickvals=ticks, ticktext=ticktext, tickangle=0, tickformat=None)
+
 # ====== FUNCTIES ======
 @st.cache_data
 def load_city(file):
@@ -67,11 +87,17 @@ if view == "Tijdreeks per stad":
     if compare:
         selected_cities = st.multiselect("Kies steden:", list(CITY_FILES.keys()), default=list(CITY_FILES.keys()))
         fig = px.line(title="Dagelijkse gemiddelde temperatuur")
+        # combineer voor tick-bereik
+        combined = []
         for city in selected_cities:
             df = load_city(CITY_FILES[city])
             temp_col = [c for c in df.columns if "Gemiddelde" in c or "t2m" in c][0]
             df_filtered = df[df["date"].dt.month.isin(maanden)]
+            combined.append(df_filtered[["date"]])
             fig.add_scatter(x=df_filtered["date"], y=df_filtered[temp_col], mode="lines", name=city)
+        if combined:
+            combined_dates = pd.concat(combined)["date"]
+            _set_month_xaxis(fig, combined_dates)
     else:
         city = st.selectbox("Kies stad:", list(CITY_FILES.keys()))
         df = load_city(CITY_FILES[city])
@@ -84,6 +110,7 @@ if view == "Tijdreeks per stad":
             title=f"Dagelijkse gemiddelde temperatuur in {city}",
             labels={temp_col: "°C"}
         )
+        _set_month_xaxis(fig, df_filtered["date"])
 
     st.plotly_chart(fig, use_container_width=True)
 
@@ -211,6 +238,8 @@ elif view == "Simpel Voorspelmodel":
         labels={"value": "Temperatuur (°C)", "date": "Datum"},
         title=f"Voorspelling vs echte temperatuur in {city}"
     )
+    # zorg dat x-as maandlabels toont zonder jaartal
+    _set_month_xaxis(fig, df_eval["date"])
     fig.for_each_trace(lambda t: t.update(name="Echt" if t.name == temp_col else "Voorspeld"))
     st.plotly_chart(fig, use_container_width=True)
 
@@ -273,6 +302,9 @@ elif view == "Voorspelmodel Berggebieden":
             else "Seizoensmodel"
         )
     ))
+
+    # zet x-as naar maandlabels zonder jaartal
+    _set_month_xaxis(fig, df["date"])
 
     st.plotly_chart(fig, use_container_width=True)
 
