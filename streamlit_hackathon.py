@@ -252,7 +252,7 @@ elif view == "Simpel Voorspelmodel":
         x="date",
         y=["t2m_daily_mean_C", "t2m_pred"],
         labels={"value": "Temperatuur (°C)", "date": "Datum"},
-        title=f"Voorspelling vs echte temperatuur in {city} ({lag}-dagen horizon)"
+        title=f"Voorspelling vs echte temperatuur in {city} ({lag}-dagen vooruit)"
     )
 
     # Pas namen van lijnen aan voor duidelijkheid
@@ -289,7 +289,7 @@ elif view == "Voorspelmodel Berggebieden":
     df["cos_doy"] = np.cos(2 * np.pi * df["day_of_year"] / 365)
 
     # --- Simpel persistence model ---
-    df["pred_simple"] = df["t2m_daily_mean_C"].shift(lag)
+    df["Simpel"] = df["t2m_daily_mean_C"].shift(lag)
 
     # --- Seizoensgecorrigeerd lineair model ---
     from sklearn.linear_model import LinearRegression
@@ -303,11 +303,11 @@ elif view == "Voorspelmodel Berggebieden":
     model = LinearRegression()
     model.fit(X, y)
 
-    df["pred_reg"] = model.predict(X)
+    df["Seizoensmodel"] = model.predict(X)
 
     # --- Evaluatie (MAE) ---
-    mae_simple = np.mean(np.abs(df["t2m_daily_mean_C"] - df["pred_simple"]))
-    mae_reg = np.mean(np.abs(df["t2m_daily_mean_C"] - df["pred_reg"]))
+    mae_simple = np.mean(np.abs(df["t2m_daily_mean_C"] - df["Simpel"]))
+    mae_reg = np.mean(np.abs(df["t2m_daily_mean_C"] - df["Seizoensmodel"]))
 
     st.markdown(f"""
     **MAE ({region}, {lag}-dagen horizon):**
@@ -320,7 +320,7 @@ elif view == "Voorspelmodel Berggebieden":
     fig = px.line(
         df,
         x="date",
-        y=["t2m_daily_mean_C", "pred_simple", "pred_reg"],
+        y=["t2m_daily_mean_C", "Simpel", "Seizoensmodel"],
         labels={"value": "Temperatuur (°C)", "date": "Datum"},
         title=f"Voorspelling vs. observatie in {region}"
     )
