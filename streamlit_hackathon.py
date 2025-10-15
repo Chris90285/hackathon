@@ -58,28 +58,6 @@ if view == "Data Visualisatie":
 
 if view == "Tijdreeks per stad":
     st.title("📈 Dagelijkse gemiddelde temperatuur per maand")
-    
-
-    # ✅ Checkbox voor vergelijking
-    compare = st.checkbox("Vergelijk meerdere steden")
-
-    # ✅ Maand selectie
-    maanden = st.multiselect(
-        "Kies maand(en) om te tonen:",
-        options=list(range(1, 13)),
-        default=list(range(1, 13)),
-        format_func=lambda x: ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][x-1]
-    )
-
-
-
-
-
-
-
-
-if view == "Tijdreeks per stad":
-    st.title("📈 Dagelijkse gemiddelde temperatuur per maand")
 
     # ✅ Checkbox voor vergelijking
     compare = st.checkbox("Vergelijk meerdere steden")
