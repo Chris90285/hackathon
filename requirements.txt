@@ -6,3 +6,4 @@ xarray
 matplotlib
 tqdm
 scikit-learn
+pillow

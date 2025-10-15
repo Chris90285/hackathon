@@ -5,6 +5,7 @@ import numpy as np
 import os
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_squared_error
+from PIL import Image
 
 
 st.set_page_config(page_title="Temperatuuranalyse 2023", layout="wide")
@@ -35,6 +36,7 @@ st.sidebar.title("Analyse van Temperatuur 2023")
 view = st.sidebar.radio(
     "Kies weergave:",
     [
+        "Data Visualisatie",
         "Tijdreeks per stad",
         "Persistentie per stad",
         "Seizoens- en dag/nacht patronen",
@@ -44,8 +46,37 @@ view = st.sidebar.radio(
 )
 
 # ====== PAGINA'S ======
-import plotly.express as px
-import streamlit as st
+if view == "Data Visualisatie":
+    st.title("Data visualisatie")
+
+    # Laad afbeelding uit de root
+    image = Image.open("TEMP_MAP.png")
+
+    # Toon in Streamlit
+    st.image(image, caption="Temperatuurkaart (2023)", use_container_width=True)
+
+
+if view == "Tijdreeks per stad":
+    st.title("📈 Dagelijkse gemiddelde temperatuur per maand")
+    
+
+    # ✅ Checkbox voor vergelijking
+    compare = st.checkbox("Vergelijk meerdere steden")
+
+    # ✅ Maand selectie
+    maanden = st.multiselect(
+        "Kies maand(en) om te tonen:",
+        options=list(range(1, 13)),
+        default=list(range(1, 13)),
+        format_func=lambda x: ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][x-1]
+    )
+
+
+
+
+
+
+
 
 if view == "Tijdreeks per stad":
     st.title("📈 Dagelijkse gemiddelde temperatuur per maand")
@@ -301,7 +332,7 @@ elif view == "Voorspelmodel Berggebieden":
     mae_reg = np.mean(np.abs(df["t2m_daily_mean_C"] - df["pred_reg"]))
 
     st.markdown(f"""
-    **Foutvergelijking ({region}, {lag}-dagen horizon):**
+    **MAE ({region}, {lag}-dagen horizon):**
     - 📘 Simpel model (persistence): {mae_simple:.2f} °C  
     - 📗 Seizoensmodel (lineaire regressie): {mae_reg:.2f} °C  
     """)
