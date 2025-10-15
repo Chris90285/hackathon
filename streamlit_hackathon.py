@@ -60,7 +60,7 @@ view = st.sidebar.radio(
         "Persistentie per stad",
         "Seizoens- en dag/nacht patronen",
         "Simpel Voorspelmodel",
-        "Voorspelmodel Berggebieden"
+        "Voorspelmodellen per gebied"
     ]
 )
 
