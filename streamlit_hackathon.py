@@ -77,7 +77,7 @@ if view == "Tijdreeks per stad":
         for city in selected_cities:
             df = load_city(CITY_FILES[city])
             df_filtered = df[df["date"].dt.month.isin(maanden)]
-            fig.add_scatter(x=df_filtered["date"], y=df_filtered["Dagelijks Gemiddelde"], mode="lines", name=city)
+            fig.add_scatter(x=df_filtered["date"], y=df_filtered["Dagelijks_Gemiddelde"], mode="lines", name=city)
     else:
         # Single-city plot
         city = st.selectbox("Kies stad:", list(CITY_FILES.keys()))
@@ -86,9 +86,9 @@ if view == "Tijdreeks per stad":
         fig = px.line(
             df_filtered,
             x="date",
-            y="Dagelijks Gemiddelde",
+            y="Dagelijks_Gemiddelde",
             title=f"Dagelijkse gemiddelde temperatuur in {city} (2023)",
-            labels={"Dagelijks Gemiddelde": "°C"}
+            labels={"Dagelijks_Gemiddelde": "°C"}
         )
 
     st.plotly_chart(fig, use_container_width=True)
@@ -236,13 +236,13 @@ elif view == "Simpel Voorspelmodel":
     df = df.sort_values("date").reset_index(drop=True)
 
     # Eenvoudig persistence model: T(t+lag) = T(t)
-    df['t2m_pred'] = df['Dagelijks Gemiddelde'].shift(lag)
+    df['t2m_pred'] = df['Dagelijks_Gemiddelde'].shift(lag)
 
     # Drop eerste 'lag' dagen zonder voorspelling
     df_eval = df.dropna(subset=['t2m_pred'])
 
     # Bereken MAE
-    mae = np.mean(np.abs(df_eval['Dagelijks Gemiddelde'] - df_eval['t2m_pred']))
+    mae = np.mean(np.abs(df_eval['Dagelijks_Gemiddelde'] - df_eval['t2m_pred']))
     st.markdown(f"**MAE voor {lag} dagen vooruit:** {mae:.2f} °C")
 
 
@@ -250,13 +250,13 @@ elif view == "Simpel Voorspelmodel":
     fig = px.line(
         df_eval,
         x="date",
-        y=["Dagelijks Gemiddelde", "t2m_pred"],
+        y=["Dagelijks_Gemiddelde", "t2m_pred"],
         labels={"value": "Temperatuur (°C)", "date": "Datum"},
         title=f"Voorspelling vs echte temperatuur in {city} ({lag}-dagen vooruit)"
     )
 
     # Pas namen van lijnen aan voor duidelijkheid
-    fig.for_each_trace(lambda t: t.update(name="Echt" if t.name=="Dagelijks Gemiddelde" else "Voorspeld"))
+    fig.for_each_trace(lambda t: t.update(name="Echt" if t.name=="Dagelijks_Gemiddelde" else "Voorspeld"))
 
     st.plotly_chart(fig, use_container_width=True)
 
@@ -289,16 +289,16 @@ elif view == "Voorspelmodel Berggebieden":
     df["cos_doy"] = np.cos(2 * np.pi * df["day_of_year"] / 365)
 
     # --- Simpel persistence model ---
-    df["Simpel"] = df["Dagelijks Gemiddelde"].shift(lag)
+    df["Simpel"] = df["Dagelijks_Gemiddelde"].shift(lag)
 
     # --- Seizoensgecorrigeerd lineair model ---
     from sklearn.linear_model import LinearRegression
 
-    df["lag_temp"] = df["Dagelijks Gemiddelde"].shift(1)
+    df["lag_temp"] = df["Dagelijks_Gemiddelde"].shift(1)
     df = df.dropna()
 
     X = df[["lag_temp", "sin_doy", "cos_doy"]]
-    y = df["Dagelijks Gemiddelde"]
+    y = df["Dagelijks_Gemiddelde"]
 
     model = LinearRegression()
     model.fit(X, y)
@@ -306,8 +306,8 @@ elif view == "Voorspelmodel Berggebieden":
     df["Seizoensmodel"] = model.predict(X)
 
     # --- Evaluatie (MAE) ---
-    mae_simple = np.mean(np.abs(df["Dagelijks Gemiddelde"] - df["Simpel"]))
-    mae_reg = np.mean(np.abs(df["Dagelijks Gemiddelde"] - df["Seizoensmodel"]))
+    mae_simple = np.mean(np.abs(df["Dagelijks_Gemiddelde"] - df["Simpel"]))
+    mae_reg = np.mean(np.abs(df["Dagelijks_Gemiddelde"] - df["Seizoensmodel"]))
 
     st.markdown(f"""
     **MAE ({region}, {lag}-dagen horizon):**
@@ -320,7 +320,7 @@ elif view == "Voorspelmodel Berggebieden":
     fig = px.line(
         df,
         x="date",
-        y=["Dagelijks Gemiddelde", "Simpel", "Seizoensmodel"],
+        y=["Dagelijks_Gemiddelde", "Simpel", "Seizoensmodel"],
         labels={"value": "Temperatuur (°C)", "date": "Datum"},
         title=f"Voorspelling vs. observatie in {region}"
     )
