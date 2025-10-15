@@ -66,7 +66,7 @@ if view == "Tijdreeks per stad":
 
     if compare:
         selected_cities = st.multiselect("Kies steden:", list(CITY_FILES.keys()), default=list(CITY_FILES.keys()))
-        fig = px.line(title="Dagelijkse gemiddelde temperatuur 2023")
+        fig = px.line(title="Dagelijkse gemiddelde temperatuur")
         for city in selected_cities:
             df = load_city(CITY_FILES[city])
             temp_col = [c for c in df.columns if "Gemiddelde" in c or "t2m" in c][0]
@@ -81,7 +81,7 @@ if view == "Tijdreeks per stad":
             df_filtered,
             x="date",
             y=temp_col,
-            title=f"Dagelijkse gemiddelde temperatuur in {city} (2023)",
+            title=f"Dagelijkse gemiddelde temperatuur in {city}",
             labels={temp_col: "°C"}
         )
 
@@ -181,7 +181,7 @@ elif view == "Seizoens- en dag/nacht patronen":
         y=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"],
         aspect="auto",
         color_continuous_scale="RdBu_r",
-        title=f"Seizoens- en dag/nachtpatronen in {city} (2023)"
+        title=f"Seizoens- en dag/nachtpatronen in {city}"
     )
 
     fig.update_traces(hovertemplate="Maand: %{y}<br>Uur: %{x}<br>Temp: %{z:.1f} °C")
@@ -209,7 +209,7 @@ elif view == "Simpel Voorspelmodel":
         x="date",
         y=[temp_col, "t2m_pred"],
         labels={"value": "Temperatuur (°C)", "date": "Datum"},
-        title=f"Voorspelling vs echte temperatuur in {city} ({lag}-dagen vooruit)"
+        title=f"Voorspelling vs echte temperatuur in {city}"
     )
     fig.for_each_trace(lambda t: t.update(name="Echt" if t.name == temp_col else "Voorspeld"))
     st.plotly_chart(fig, use_container_width=True)
@@ -265,7 +265,7 @@ elif view == "Voorspelmodel Berggebieden":
         title=f"Voorspelling vs. observatie in {region}"
     )
 
-    # ✅ Mooie legenda-namen
+    # Mooie legenda-namen
     fig.for_each_trace(lambda t: t.update(
         name=(
             "Werkelijke temperatuur" if t.name == temp_col
