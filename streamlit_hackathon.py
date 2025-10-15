@@ -232,9 +232,10 @@ elif view == "Simpel Voorspelmodel":
     # Drop eerste 'lag' dagen zonder voorspelling
     df_eval = df.dropna(subset=['t2m_pred'])
 
-    # Bereken RMSE
-    rmse = np.sqrt(np.mean((df_eval['t2m_daily_mean_C'] - df_eval['t2m_pred'])**2))
-    st.markdown(f"**RMSE voor {lag} dagen vooruit:** {rmse:.2f} °C")
+    # Bereken MAE
+    mae = np.mean(np.abs(df_eval['t2m_daily_mean_C'] - df_eval['t2m_pred']))
+    st.markdown(f"**MAE voor {lag} dagen vooruit:** {mae:.2f} °C")
+
 
     # Plot echte vs voorspelde temperatuur
     fig = px.line(
@@ -295,15 +296,16 @@ elif view == "Voorspelmodel Berggebieden":
 
     df["pred_reg"] = model.predict(X)
 
-    # --- Evaluatie ---
-    rmse_simple = np.sqrt(np.mean((df["t2m_daily_mean_C"] - df["pred_simple"]) ** 2))
-    rmse_reg = np.sqrt(np.mean((df["t2m_daily_mean_C"] - df["pred_reg"]) ** 2))
+    # --- Evaluatie (MAE) ---
+    mae_simple = np.mean(np.abs(df["t2m_daily_mean_C"] - df["pred_simple"]))
+    mae_reg = np.mean(np.abs(df["t2m_daily_mean_C"] - df["pred_reg"]))
 
     st.markdown(f"""
     **Foutvergelijking ({region}, {lag}-dagen horizon):**
-    - 📘 Simpel model (persistence): {rmse_simple:.2f} °C  
-    - 📗 Seizoensmodel (lineaire regressie): {rmse_reg:.2f} °C  
+    - 📘 Simpel model (persistence): {mae_simple:.2f} °C  
+    - 📗 Seizoensmodel (lineaire regressie): {mae_reg:.2f} °C  
     """)
+
 
     # --- Visualisatie ---
     fig = px.line(
