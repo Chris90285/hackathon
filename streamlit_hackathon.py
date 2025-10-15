@@ -18,18 +18,27 @@ CITY_FILES = {
 }
 MAP_FILE = "temperature_persistence_map.csv"
 
+# ====== HULPFUNCTIE OM KOLONNAMEN TE REPAREREN ======
+def detect_temp_column(df):
+    """Zoekt automatisch de juiste temperatuurkolom."""
+    df.columns = df.columns.str.replace(" ", "_")
+    for col in df.columns:
+        if "Gemiddelde" in col or "t2m" in col:
+            return col
+    st.error("❌ Geen temperatuurkolom gevonden in dataset!")
+    st.stop()
+
 # ====== FUNCTIES ======
 @st.cache_data
 def load_city(file):
     df = pd.read_csv(file)
-    df.columns = df.columns.str.replace(" ", "_")  # 🔧 standaardiseer kolomnamen
+    df.columns = df.columns.str.replace(" ", "_")
     df["date"] = pd.to_datetime(df["date"])
     return df
 
 @st.cache_data
 def load_map(file):
     df = pd.read_csv(file)
-    df.columns = df.columns.str.replace(" ", "_")
     return df
 
 # ====== SIDEBAR ======
@@ -54,6 +63,9 @@ if view == "Data Visualisatie":
     st.image(image, caption="Temperatuurkaart (2023)", use_container_width=True)
 
 
+# ---------------------------------------------------------------------
+# TIJDREEKS PER STAD
+# ---------------------------------------------------------------------
 if view == "Tijdreeks per stad":
     st.title("📈 Dagelijkse gemiddelde temperatuur per maand")
 
@@ -71,37 +83,41 @@ if view == "Tijdreeks per stad":
         fig = px.line(title="Dagelijkse gemiddelde temperatuur 2023")
         for city in selected_cities:
             df = load_city(CITY_FILES[city])
+            temp_col = detect_temp_column(df)
             df_filtered = df[df["date"].dt.month.isin(maanden)]
-            fig.add_scatter(x=df_filtered["date"], y=df_filtered["Dagelijks_Gemiddelde"], mode="lines", name=city)
+            fig.add_scatter(x=df_filtered["date"], y=df_filtered[temp_col], mode="lines", name=city)
     else:
         city = st.selectbox("Kies stad:", list(CITY_FILES.keys()))
         df = load_city(CITY_FILES[city])
+        temp_col = detect_temp_column(df)
         df_filtered = df[df["date"].dt.month.isin(maanden)]
         fig = px.line(
             df_filtered,
             x="date",
-            y="Dagelijks_Gemiddelde",
+            y=temp_col,
             title=f"Dagelijkse gemiddelde temperatuur in {city} (2023)",
-            labels={"Dagelijks_Gemiddelde": "°C"}
+            labels={temp_col: "°C"}
         )
 
     st.plotly_chart(fig, use_container_width=True)
 
 
-
+# ---------------------------------------------------------------------
+# PERSISTENTIE
+# ---------------------------------------------------------------------
 elif view == "Persistentie per stad":
     st.title("Temperatuurpersistentie per stad")
     st.write('Betekenis: Hoe lang de temperatuur op een plek “hetzelfde gedrag” blijft vertonen voordat het terugkeert naar normaal.')
-    st.write('Een voorbeeld hiervan is een hittegolf, waardoor het meerdere dagen warmer blijft dan gemiddeld.')
     st.write('Een hoge persistentie betekent dat de temperatuur traag verandert; een lage persistentie betekent dat de temperatuur snel fluctueert.')
     st.write('Dit wordt gemeten doormiddel van de autocorrelatie.')
     st.write('De rode lijn op y=0.2 geeft de grens van praktisch “geen persistentie” aan.')
 
     city = st.selectbox("Kies stad:", list(CITY_FILES.keys()))
     df = load_city(CITY_FILES[city])
+    temp_col = detect_temp_column(df)
 
     df["month"] = df["date"].dt.month
-    df["anomaly"] = df["Dagelijks_Gemiddelde"] - df.groupby("month")["Dagelijks_Gemiddelde"].transform("mean")
+    df["anomaly"] = df[temp_col] - df.groupby("month")[temp_col].transform("mean")
 
     max_lag = 30
     acf = [df["anomaly"].autocorr(lag=i) for i in range(1, max_lag + 1)]
@@ -119,7 +135,6 @@ elif view == "Persistentie per stad":
         labels={"lag_days": "Dagen vertraging", "acf": "Autocorrelatie"},
         hover_data={"lag_days": True, "acf": True}
     )
-
     fig.add_hline(
         y=0.2,
         line_dash="dot",
@@ -136,6 +151,9 @@ elif view == "Persistentie per stad":
         st.markdown("⚪ Geen duidelijke grens (correlatie blijft hoog of fluctueert).")
 
 
+# ---------------------------------------------------------------------
+# SEIZOENS- EN DAG/NACHTPATRONEN
+# ---------------------------------------------------------------------
 elif view == "Seizoens- en dag/nacht patronen":
     st.title("Dag/nacht en seizoenspatronen per stad")
     st.write("""
@@ -154,11 +172,10 @@ elif view == "Seizoens- en dag/nacht patronen":
     @st.cache_data
     def load_hourly(file):
         df = pd.read_csv(file)
-        df.columns = df.columns.str.replace(" ", "_")  # 🔧 standaardiseer
+        df.columns = df.columns.str.replace(" ", "_")
         df["valid_time"] = pd.to_datetime(df["valid_time"])
         df["hour"] = df["hour"].astype(int)
         df["month"] = df["month"].astype(int)
-        df["t2m_C"] = df["t2m_C"].astype(float)
         return df
 
     try:
@@ -167,14 +184,12 @@ elif view == "Seizoens- en dag/nacht patronen":
         st.error(f"❌ Het bestand '{HOURLY_FILES[city]}' is niet gevonden. Upload de juiste `hourly_*.csv` bestanden.")
         st.stop()
 
-    if df["hour"].nunique() < 8:
-        st.warning("⚠️ Let op: deze dataset bevat mogelijk geen volledige uurlijkse data (om de 3 uur).")
-
-    heatmap_data = df.groupby(["month", "hour"])["t2m_C"].mean().reset_index()
+    temp_col = detect_temp_column(df)
+    heatmap_data = df.groupby(["month", "hour"])[temp_col].mean().reset_index()
 
     all_months = list(range(1, 13))
     all_hours = list(range(0, 24, 3))
-    pivot_table = heatmap_data.pivot(index="month", columns="hour", values="t2m_C")
+    pivot_table = heatmap_data.pivot(index="month", columns="hour", values=temp_col)
     pivot_table = pivot_table.reindex(index=all_months, columns=all_hours)
     pivot_table = pivot_table.fillna(np.nan)
 
@@ -187,7 +202,6 @@ elif view == "Seizoens- en dag/nacht patronen":
         color_continuous_scale="RdBu_r",
         title=f"Seizoens- en dag/nachtpatronen in {city} (2023)"
     )
-
     fig.update_traces(hovertemplate="Maand: %{y}<br>Uur: %{x}<br>Temp: %{z:.1f} °C")
 
     st.plotly_chart(fig, use_container_width=True)
@@ -200,37 +214,39 @@ elif view == "Seizoens- en dag/nacht patronen":
     """)
 
 
-
+# ---------------------------------------------------------------------
+# SIMPEL VOORSPELMODEL
+# ---------------------------------------------------------------------
 elif view == "Simpel Voorspelmodel":
     st.title("Simpel voorspellen van temperatuur")
 
     city = st.selectbox("Kies stad:", list(CITY_FILES.keys()))
     df = load_city(CITY_FILES[city])
+    temp_col = detect_temp_column(df)
 
     lag = st.slider("Aantal dagen vooruit voorspellen:", 1, 7, 1)
-
     df = df.sort_values("date").reset_index(drop=True)
-
-    df['t2m_pred'] = df['Dagelijks_Gemiddelde'].shift(lag)
-
+    df['t2m_pred'] = df[temp_col].shift(lag)
     df_eval = df.dropna(subset=['t2m_pred'])
 
-    mae = np.mean(np.abs(df_eval['Dagelijks_Gemiddelde'] - df_eval['t2m_pred']))
+    mae = np.mean(np.abs(df_eval[temp_col] - df_eval['t2m_pred']))
     st.markdown(f"**MAE voor {lag} dagen vooruit:** {mae:.2f} °C")
 
     fig = px.line(
         df_eval,
         x="date",
-        y=["Dagelijks_Gemiddelde", "t2m_pred"],
+        y=[temp_col, "t2m_pred"],
         labels={"value": "Temperatuur (°C)", "date": "Datum"},
         title=f"Voorspelling vs echte temperatuur in {city} ({lag}-dagen vooruit)"
     )
 
-    fig.for_each_trace(lambda t: t.update(name="Echt" if t.name=="Dagelijks_Gemiddelde" else "Voorspeld"))
-
+    fig.for_each_trace(lambda t: t.update(name="Echt" if t.name==temp_col else "Voorspeld"))
     st.plotly_chart(fig, use_container_width=True)
 
 
+# ---------------------------------------------------------------------
+# BERGGEBIEDEN-MODEL
+# ---------------------------------------------------------------------
 elif view == "Voorspelmodel Berggebieden":
     st.title("Temperatuurvoorspelling in berggebieden")
     st.write("""
@@ -246,9 +262,9 @@ elif view == "Voorspelmodel Berggebieden":
 
     region = st.selectbox("Kies berggebied:", list(MOUNTAIN_FILES.keys()))
     df = pd.read_csv(MOUNTAIN_FILES[region])
-    df.columns = df.columns.str.replace(" ", "_")  # 🔧 standaardiseer kolomnamen
+    df.columns = df.columns.str.replace(" ", "_")
     df["date"] = pd.to_datetime(df["date"])
-    df = df.sort_values("date").reset_index(drop=True)
+    temp_col = detect_temp_column(df)
 
     lag = st.slider("Aantal dagen vooruit voorspellen:", 1, 7, 1)
 
@@ -256,21 +272,18 @@ elif view == "Voorspelmodel Berggebieden":
     df["sin_doy"] = np.sin(2 * np.pi * df["day_of_year"] / 365)
     df["cos_doy"] = np.cos(2 * np.pi * df["day_of_year"] / 365)
 
-    df["Simpel"] = df["Dagelijks_Gemiddelde"].shift(lag)
-
-    df["lag_temp"] = df["Dagelijks_Gemiddelde"].shift(1)
+    df["Simpel"] = df[temp_col].shift(lag)
+    df["lag_temp"] = df[temp_col].shift(1)
     df = df.dropna()
 
     X = df[["lag_temp", "sin_doy", "cos_doy"]]
-    y = df["Dagelijks_Gemiddelde"]
-
+    y = df[temp_col]
     model = LinearRegression()
     model.fit(X, y)
-
     df["Seizoensmodel"] = model.predict(X)
 
-    mae_simple = np.mean(np.abs(df["Dagelijks_Gemiddelde"] - df["Simpel"]))
-    mae_reg = np.mean(np.abs(df["Dagelijks_Gemiddelde"] - df["Seizoensmodel"]))
+    mae_simple = np.mean(np.abs(df[temp_col] - df["Simpel"]))
+    mae_reg = np.mean(np.abs(df[temp_col] - df["Seizoensmodel"]))
 
     st.markdown(f"""
     **MAE ({region}, {lag}-dagen horizon):**
@@ -281,7 +294,7 @@ elif view == "Voorspelmodel Berggebieden":
     fig = px.line(
         df,
         x="date",
-        y=["Dagelijks_Gemiddelde", "Simpel", "Seizoensmodel"],
+        y=[temp_col, "Simpel", "Seizoensmodel"],
         labels={"value": "Temperatuur (°C)", "date": "Datum"},
         title=f"Voorspelling vs. observatie in {region}"
     )
