@@ -22,12 +22,14 @@ MAP_FILE = "temperature_persistence_map.csv"
 @st.cache_data
 def load_city(file):
     df = pd.read_csv(file)
+    df.columns = df.columns.str.replace(" ", "_")  # 🔧 standaardiseer kolomnamen
     df["date"] = pd.to_datetime(df["date"])
     return df
 
 @st.cache_data
 def load_map(file):
     df = pd.read_csv(file)
+    df.columns = df.columns.str.replace(" ", "_")
     return df
 
 # ====== SIDEBAR ======
@@ -93,7 +95,7 @@ elif view == "Persistentie per stad":
     st.write('Een voorbeeld hiervan is een hittegolf, waardoor het meerdere dagen warmer blijft dan gemiddeld.')
     st.write('Een hoge persistentie betekent dat de temperatuur traag verandert; een lage persistentie betekent dat de temperatuur snel fluctueert.')
     st.write('Dit wordt gemeten doormiddel van de autocorrelatie.')
-    st.write('De rode lijn op y=0.2 geeft de grens van praktisch “geen persistentie aan')
+    st.write('De rode lijn op y=0.2 geeft de grens van praktisch “geen persistentie” aan.')
 
     city = st.selectbox("Kies stad:", list(CITY_FILES.keys()))
     df = load_city(CITY_FILES[city])
@@ -152,6 +154,7 @@ elif view == "Seizoens- en dag/nacht patronen":
     @st.cache_data
     def load_hourly(file):
         df = pd.read_csv(file)
+        df.columns = df.columns.str.replace(" ", "_")  # 🔧 standaardiseer
         df["valid_time"] = pd.to_datetime(df["valid_time"])
         df["hour"] = df["hour"].astype(int)
         df["month"] = df["month"].astype(int)
@@ -227,6 +230,7 @@ elif view == "Simpel Voorspelmodel":
 
     st.plotly_chart(fig, use_container_width=True)
 
+
 elif view == "Voorspelmodel Berggebieden":
     st.title("Temperatuurvoorspelling in berggebieden")
     st.write("""
@@ -242,6 +246,7 @@ elif view == "Voorspelmodel Berggebieden":
 
     region = st.selectbox("Kies berggebied:", list(MOUNTAIN_FILES.keys()))
     df = pd.read_csv(MOUNTAIN_FILES[region])
+    df.columns = df.columns.str.replace(" ", "_")  # 🔧 standaardiseer kolomnamen
     df["date"] = pd.to_datetime(df["date"])
     df = df.sort_values("date").reset_index(drop=True)
 
@@ -252,8 +257,6 @@ elif view == "Voorspelmodel Berggebieden":
     df["cos_doy"] = np.cos(2 * np.pi * df["day_of_year"] / 365)
 
     df["Simpel"] = df["Dagelijks_Gemiddelde"].shift(lag)
-
-    from sklearn.linear_model import LinearRegression
 
     df["lag_temp"] = df["Dagelijks_Gemiddelde"].shift(1)
     df = df.dropna()
