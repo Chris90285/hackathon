@@ -245,8 +245,8 @@ elif view == "Simpel Voorspelmodel":
     st.plotly_chart(fig, use_container_width=True)
 
     st.markdown("""
-    **Simpel voorspellen van temperatuur – Modeltype**  
-    Het Simpel voorspellen van temperatuur-model is een **persistence-model**.  
+    **Simpel voorspelmodel**  
+    Het Simpele model om temperatuur te voorspellen is een persistence-model.  
     Het gebruikt de vorige dagtemperatuur om de komende dagen te voorspellen. 
     Het houdt geen rekening met het soort gebied en geschikt voor algemene voorspellingen.
     """)
