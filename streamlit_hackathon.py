@@ -56,7 +56,7 @@ view = st.sidebar.radio(
     "Kies weergave:",
     [
         "Data Visualisatie",
-        "Tijdreeks per stad",
+        "Temperatuur per stad",
         "Persistentie per stad",
         "Seizoens- en dag/nacht patronen",
         "Simpel Voorspelmodel",
@@ -72,8 +72,8 @@ if view == "Data Visualisatie":
 
 
 # ====== TIJDREEKS ======
-if view == "Tijdreeks per stad":
-    st.title("📈 Dagelijkse gemiddelde temperatuur per maand")
+if view == "Temperatuur per stad":
+    st.title("Gemiddelde temperatuur per stad")
 
     compare = st.checkbox("Vergelijk meerdere steden")
 
@@ -246,7 +246,7 @@ elif view == "Simpel Voorspelmodel":
 
 # ====== VOORSPELMODELLEN VOOR GEBIEDEN ======
 elif view == "Voorspelmodellen per gebied":
-    st.title("🌍 Temperatuurvoorspelling per gebied")
+    st.title("Temperatuurvoorspelling per gebied")
 
     # Kies type gebied (één selectbox)
     gebied_type = st.selectbox("Kies type gebied:", ["Berggebieden", "Zeegebieden", "Woestijngebieden"])
