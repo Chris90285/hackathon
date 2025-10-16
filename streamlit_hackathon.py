@@ -243,6 +243,14 @@ elif view == "Simpel Voorspelmodel":
     _set_month_xaxis(fig, df_eval["date"])
     fig.for_each_trace(lambda t: t.update(name="Echt" if t.name == temp_col else "Voorspeld"))
     st.plotly_chart(fig, use_container_width=True)
+
+    st.markdown("""
+    **Simpel voorspellen van temperatuur – Modeltype**  
+    Het Simpel voorspellen van temperatuur-model is een **persistence-model**.  
+    Het gebruikt de vorige dagtemperatuur om de komende dagen te voorspellen. 
+    Het houdt geen rekening met het soort gebied en geschikt voor algemene voorspellingen.
+    """)
+
 # ====== VOORSPELMODELLEN VOOR GEBIEDEN ======
 elif view == "Voorspelmodellen per gebied":
     st.title("Temperatuurvoorspelling per gebied")
