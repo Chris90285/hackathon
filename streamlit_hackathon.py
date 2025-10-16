@@ -246,7 +246,7 @@ elif view == "Simpel Voorspelmodel":
 
     st.markdown("""
     **Simpel voorspelmodel**  
-    Het Simpele model om temperatuur te voorspellen is een persistence-model.  
+    Het simpele model om temperatuur te voorspellen is een persistence-model.  
     Het gebruikt de vorige dagtemperatuur om de komende dagen te voorspellen. 
     Het houdt geen rekening met het soort gebied en geschikt voor algemene voorspellingen.
     """)
