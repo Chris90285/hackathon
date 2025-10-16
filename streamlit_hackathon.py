@@ -389,6 +389,10 @@ elif view == "Voorspelmodellen per gebied":
             fig_map.update_layout(margin=dict(l=0, r=0, t=40, b=0))
             st.plotly_chart(fig_map, use_container_width=True)
 
+    st.markdown("""
+    **Berggebieden – Seizoensmodel**  
+    Een eenvoudig lineair model dat de temperatuur voorspelt met de vorige dag en seizoensritmes (sin/cos van dag van het jaar). 
+    Het houdt rekening met zowel dagelijkse als jaarlijkse schommelingen. Zo past het goed bij bergklimaten met sterke seizoensinvloeden.""")
     # ---------------------------------------------------------------------
     # Zeegebieden
     # ---------------------------------------------------------------------
@@ -498,6 +502,10 @@ elif view == "Voorspelmodellen per gebied":
             fig_map.update_layout(margin=dict(l=0, r=0, t=40, b=0))
             st.plotly_chart(fig_map, use_container_width=True)
 
+    st.markdown("""
+    **Zeegebieden – Zeemodel**  
+    Een lineair model dat een 7-daags gemiddelde en seizoensgolven gebruikt om de temperatuur te voorspellen. Het dempt snelle veranderingen, omdat zeeën traag opwarmen en afkoelen. 
+    Daardoor werkt het goed in gebieden met stabiel, maritiem weer.  """)
     # ---------------------------------------------------------------------
     # Woestijngebieden
     # ---------------------------------------------------------------------
@@ -603,3 +611,9 @@ elif view == "Voorspelmodellen per gebied":
             )
             fig_map.update_layout(margin=dict(l=0, r=0, t=40, b=0))
             st.plotly_chart(fig_map, use_container_width=True)
+
+    st.markdown("""
+    **Woestijngebieden – Woestijnmodel**  
+    Een autoregressief model dat de laatste drie dagen en een korte temperatuurcyclus meeneemt. 
+    Het reageert snel op plotselinge veranderingen. Zo is het afgestemd op woestijnen met sterke dag-nachtverschillen.
+    """)
