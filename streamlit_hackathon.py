@@ -246,13 +246,15 @@ elif view == "Simpel Voorspelmodel":
 
 # ====== VOORSPELMODELLEN VOOR GEBIEDEN ======
 elif view == "Voorspelmodellen per gebied":
+    import streamlit as st
+    import pandas as pd
+    import numpy as np
+    import plotly.express as px
+    from sklearn.linear_model import LinearRegression
+
     st.title("🌍 Temperatuurvoorspelling per gebied")
 
-    gebied_type = st.selectbox("Kies type gebied:", ["Berggebieden", "Zeegebieden", "Woestijnen"])
-
-    lag_for_map = st.slider("Aantal dagen vooruit voorspellen voor MAE-kaart:", 1, 7, 1, key="map_lag")
-
-    # ====== BESTANDEN PER TYPE ======
+    # === FILE DICTIONARIES ===
     MOUNTAIN_FILES = {
         "Alpen": "data_daily_Alpen.csv",
         "Pyreneeën": "data_daily_Pyreneeen.csv",
@@ -271,7 +273,23 @@ elif view == "Voorspelmodellen per gebied":
         "Bardenas": "data_daily_Bardenas.csv"
     }
 
-    # ====== SELECTIE BESTAND ======
+    # === COORDINATES FOR MAP ===
+    COORDS = {
+        "Alpen": (46.8, 9.8),
+        "Pyreneeën": (42.6, 0.5),
+        "Karpaten": (47.0, 24.0),
+        "Noordzee": (55.0, 3.0),
+        "Middellandse Zee": (42.5, 5.0),
+        "Atlantische Oceaan": (41.0, -10.0),
+        "Sahara_Spain": (37.0, -2.0),
+        "Tabernas": (37.1, -2.3),
+        "Bardenas": (42.3, -1.7)
+    }
+
+    gebied_type = st.selectbox("Kies type gebied:", ["Berggebieden", "Zeegebieden", "Woestijnen"])
+    lag = st.slider("Aantal dagen vooruit voorspellen:", 1, 7, 1, key="main_lag")
+
+    # === Select correct file set ===
     if gebied_type == "Berggebieden":
         files = MOUNTAIN_FILES
     elif gebied_type == "Zeegebieden":
@@ -284,30 +302,25 @@ elif view == "Voorspelmodellen per gebied":
     df.columns = df.columns.str.replace(" ", "_")
     df["date"] = pd.to_datetime(df["date"])
     df = df.sort_values("date").reset_index(drop=True)
-
     temp_col = [c for c in df.columns if "Gemiddelde" in c or "t2m" in c][0]
 
-    # ====== MODELLEN PER TYPE ======
+    # === MODEL DEFINITIONS ===
     if gebied_type == "Berggebieden":
-        # Persistence + Seizoensmodel
+        # Seasonal linear regression model
         df["day_of_year"] = df["date"].dt.dayofyear
         df["sin_doy"] = np.sin(2 * np.pi * df["day_of_year"] / 365)
         df["cos_doy"] = np.cos(2 * np.pi * df["day_of_year"] / 365)
-        df["Simpel"] = df[temp_col].shift(lag_for_map)
+        df["Simpel"] = df[temp_col].shift(lag)
         df["lag_temp"] = df[temp_col].shift(1)
         df = df.dropna()
         X = df[["lag_temp", "sin_doy", "cos_doy"]]
         y = df[temp_col]
-        model = LinearRegression()
-        model.fit(X, y)
-        df["Seizoensmodel"] = model.predict(X)
-
-        mae_simple = np.mean(np.abs(df[temp_col] - df["Simpel"]))
-        mae_model = np.mean(np.abs(df[temp_col] - df["Seizoensmodel"]))
+        model = LinearRegression().fit(X, y)
+        df["Model"] = model.predict(X)
 
     elif gebied_type == "Zeegebieden":
-        # Persistence + Moving average + harmonics
-        df["Simpel"] = df[temp_col].shift(lag_for_map)
+        # Moving average + harmonic model
+        df["Simpel"] = df[temp_col].shift(lag)
         df["MA_7d"] = df[temp_col].rolling(window=7, center=True).mean()
         df["day_of_year"] = df["date"].dt.dayofyear
         df["sin1"] = np.sin(2 * np.pi * df["day_of_year"] / 365)
@@ -317,16 +330,12 @@ elif view == "Voorspelmodellen per gebied":
         df = df.dropna()
         X = df[["MA_7d", "sin1", "cos1", "sin2", "cos2"]]
         y = df[temp_col]
-        model = LinearRegression()
-        model.fit(X, y)
-        df["Zeemodel"] = model.predict(X)
-
-        mae_simple = np.mean(np.abs(df[temp_col] - df["Simpel"]))
-        mae_model = np.mean(np.abs(df[temp_col] - df["Zeemodel"]))
+        model = LinearRegression().fit(X, y)
+        df["Model"] = model.predict(X)
 
     else:  # Woestijnen
-        # Persistence + Temperatuursprong model (grote dag/nacht swings)
-        df["Simpel"] = df[temp_col].shift(lag_for_map)
+        # Daily temp variation + persistence + seasonality
+        df["Simpel"] = df[temp_col].shift(lag)
         df["day_of_year"] = df["date"].dt.dayofyear
         df["sin1"] = np.sin(2 * np.pi * df["day_of_year"] / 365)
         df["cos1"] = np.cos(2 * np.pi * df["day_of_year"] / 365)
@@ -334,55 +343,106 @@ elif view == "Voorspelmodellen per gebied":
         df = df.dropna()
         X = df[["Simpel", "sin1", "cos1", "day_night_diff"]]
         y = df[temp_col]
-        model = LinearRegression()
-        model.fit(X, y)
-        df["Woestijnmodel"] = model.predict(X)
+        model = LinearRegression().fit(X, y)
+        df["Model"] = model.predict(X)
 
-        mae_simple = np.mean(np.abs(df[temp_col] - df["Simpel"]))
-        mae_model = np.mean(np.abs(df[temp_col] - df["Woestijnmodel"]))
+    # === ERROR METRICS ===
+    mae_simple = np.mean(np.abs(df[temp_col] - df["Simpel"]))
+    mae_model = np.mean(np.abs(df[temp_col] - df["Model"]))
 
     st.markdown(f"""
-    **MAE ({region}, {lag_for_map}-dagen horizon):**
-    - Simpel model (persistence): {mae_simple:.2f} °C  
-    - {gebied_type[:-1]} model: {mae_model:.2f} °C  
+    **MAE ({region}, {lag}-dagen horizon):**
+    - Simpel model: {mae_simple:.2f} °C  
+    - Geavanceerd model: {mae_model:.2f} °C  
     """)
 
-    # ====== KAART VAN MAE ======
-    # Maak dataframe voor alle regio's (in dit voorbeeld coördinaten handmatig instellen)
-    coords = {
-        **{"Alpen": (46.8, 9.8), "Pyreneeën": (42.6, 0.5), "Karpaten": (47.0, 24.0)},
-        **{"Noordzee": (55.0, 3.0), "Middellandse Zee": (42.5, 5.0), "Atlantische Oceaan": (41.0, -10.0)},
-        **{"Sahara_Spain": (37.0, -2.0), "Tabernas": (37.1, -2.3), "Bardenas": (42.3, -1.7)}
-    }
+    # === PREDICTION GRAPH ===
+    fig = px.line(
+        df,
+        x="date",
+        y=[temp_col, "Simpel", "Model"],
+        labels={"value": "Temperatuur (°C)", "date": "Datum"},
+        title=f"📈 Voorspelling vs. Observatie – {region}"
+    )
+    fig.for_each_trace(lambda t: t.update(
+        name="Werkelijke temperatuur" if t.name == temp_col
+        else "Simpel model" if t.name == "Simpel"
+        else "Voorspellend model"
+    ))
+    fig.update_layout(legend_title_text="Legenda")
+    st.plotly_chart(fig, use_container_width=True)
 
-    df_map = pd.DataFrame({
-        "region": [region],
-        "lat": [coords[region][0]],
-        "lon": [coords[region][1]],
-        "type": [gebied_type],
-        "mae_simple": [mae_simple],
-        "mae_model": [mae_model]
-    })
+    # === INTERACTIVE MAE MAP ===
+    st.subheader("🌐 Vergelijk MAE per gebied op de kaart")
 
-    # Verwijder lege locaties
-    df_map_clean = df_map.dropna(subset=["lat", "lon", "mae_model"])
+    # Compute MAE for all regions to visualize on one map
+    all_regions = {**MOUNTAIN_FILES, **SEA_FILES, **DESERT_FILES}
+    maes = []
+    for r, path in all_regions.items():
+        df_temp = pd.read_csv(path)
+        df_temp.columns = df_temp.columns.str.replace(" ", "_")
+        df_temp["date"] = pd.to_datetime(df_temp["date"])
+        df_temp = df_temp.sort_values("date").reset_index(drop=True)
+        tcol = [c for c in df_temp.columns if "Gemiddelde" in c or "t2m" in c][0]
 
-    # Kies welke MAE tonen
-    mae_metric = st.radio("Kies MAE voor kleurweergave:", ["mae_simple", "mae_model"], index=1)
+        df_temp["Simpel"] = df_temp[tcol].shift(lag)
+        df_temp = df_temp.dropna()
+        mae = np.mean(np.abs(df_temp[tcol] - df_temp["Simpel"]))
+
+        # categorize area type
+        if r in MOUNTAIN_FILES:
+            t = "Berg"
+        elif r in SEA_FILES:
+            t = "Zee"
+        else:
+            t = "Woestijn"
+
+        maes.append({
+            "region": r,
+            "lat": COORDS[r][0],
+            "lon": COORDS[r][1],
+            "type": t,
+            "MAE": mae
+        })
+
+    df_map = pd.DataFrame(maes)
 
     fig_map = px.scatter_geo(
-        df_map_clean,
+        df_map,
         lat="lat",
         lon="lon",
+        color="MAE",
         hover_name="region",
-        hover_data=["type", "mae_simple", "mae_model"],
-        color=mae_metric,
-        size=mae_metric,
-        projection="natural earth",
+        hover_data=["type", "MAE"],
         color_continuous_scale="YlOrRd",
-        title=f"MAE per locatie — {mae_metric} (lag={lag_for_map} dagen)",
-        symbol="type",
+        size="MAE",
+        projection="natural earth",
+        title=f"MAE per regio (lag = {lag} dagen)",
         scope="europe"
     )
 
+    # Allow zooming & movement
+    fig_map.update_geos(
+        resolution=50,
+        showcountries=True,
+        showcoastlines=True,
+        showland=True,
+        landcolor="rgb(240, 240, 240)",
+        countrycolor="gray",
+        projection_scale=4,  # zoom
+        center={"lat": 46, "lon": 10},
+    )
+
+    fig_map.update_layout(
+        coloraxis_colorbar=dict(title="MAE (°C)"),
+        dragmode="pan"
+    )
+
     st.plotly_chart(fig_map, use_container_width=True)
+
+    st.markdown("""
+    **Interpretatie:**
+    - De kleurintensiteit toont de fout (MAE) per locatie.  
+    - Je kunt de kaart inzoomen en rondbewegen om verschillen tussen gebieden te vergelijken.  
+    - Lagere MAE (lichter) betekent nauwkeurigere voorspellingen.  
+    """)
