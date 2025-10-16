@@ -36,7 +36,6 @@ def _set_month_xaxis(fig, date_series):
         ticks = [min_date]
     ticktext = [d.strftime("%b") for d in ticks]
     fig.update_xaxes(tickvals=ticks, ticktext=ticktext, tickangle=0, tickformat=None)
-
 # ====== FUNCTIES ======
 @st.cache_data
 def load_city(file):
@@ -49,7 +48,6 @@ def load_city(file):
 def load_map(file):
     df = pd.read_csv(file)
     return df
-
 # ====== SIDEBAR ======
 st.sidebar.title("Analyse van Temperatuur 2023")
 view = st.sidebar.radio(
@@ -63,14 +61,11 @@ view = st.sidebar.radio(
         "Voorspelmodellen per gebied"
     ]
 )
-
 # ====== PAGINA'S ======
 if view == "Data Visualisatie":
     st.title("Data visualisatie")
     image = Image.open("TEMP_MAP.png")
     st.image(image, caption="Temperatuurkaart (2023)", use_container_width=True)
-
-
 # ====== TIJDREEKS ======
 if view == "Temperatuur per stad":
     st.title("Gemiddelde temperatuur per stad")
@@ -83,6 +78,11 @@ if view == "Temperatuur per stad":
         default=list(range(1, 13)),
         format_func=lambda x: ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][x-1]
     )
+    # vaste kleuren per stad
+    CITY_COLORS = {
+        city: px.colors.qualitative.Plotly[i % len(px.colors.qualitative.Plotly)]
+        for i, city in enumerate(CITY_FILES.keys())
+    }
 
     if compare:
         selected_cities = st.multiselect("Kies steden:", list(CITY_FILES.keys()), default=list(CITY_FILES.keys()))
@@ -94,7 +94,13 @@ if view == "Temperatuur per stad":
             temp_col = [c for c in df.columns if "Gemiddelde" in c or "t2m" in c][0]
             df_filtered = df[df["date"].dt.month.isin(maanden)]
             combined.append(df_filtered[["date"]])
-            fig.add_scatter(x=df_filtered["date"], y=df_filtered[temp_col], mode="lines", name=city)
+            fig.add_scatter(
+                x=df_filtered["date"],
+                y=df_filtered[temp_col],
+                mode="lines",
+                name=city,
+                line=dict(color=CITY_COLORS[city])
+            )
         if combined:
             combined_dates = pd.concat(combined)["date"]
             _set_month_xaxis(fig, combined_dates)
@@ -108,13 +114,12 @@ if view == "Temperatuur per stad":
             x="date",
             y=temp_col,
             title=f"Dagelijkse gemiddelde temperatuur in {city}",
-            labels={temp_col: "°C"}
+            labels={temp_col: "°C"},
+            color_discrete_map={city: CITY_COLORS[city]}
         )
         _set_month_xaxis(fig, df_filtered["date"])
 
     st.plotly_chart(fig, use_container_width=True)
-
-
 # ====== PERSISTENTIE ======
 elif view == "Persistentie per stad":
     st.title("Temperatuurpersistentie per stad")
@@ -160,8 +165,6 @@ elif view == "Persistentie per stad":
         st.markdown(f"**Geheugenlengte:** ± {memory_days} dagen")
     else:
         st.markdown("⚪ Geen duidelijke grens (correlatie blijft hoog of fluctueert).")
-
-
 # ====== SEIZOENSPATRONEN ======
 elif view == "Seizoens- en dag/nacht patronen":
     st.title("Dag/nacht en seizoenspatronen per stad")
@@ -213,8 +216,6 @@ elif view == "Seizoens- en dag/nacht patronen":
 
     fig.update_traces(hovertemplate="Maand: %{y}<br>Uur: %{x}<br>Temp: %{z:.1f} °C")
     st.plotly_chart(fig, use_container_width=True)
-
-
 # ====== SIMPEL VOORSPELMODEL ======
 elif view == "Simpel Voorspelmodel":
     st.title("Simpel voorspellen van temperatuur")
@@ -242,8 +243,6 @@ elif view == "Simpel Voorspelmodel":
     _set_month_xaxis(fig, df_eval["date"])
     fig.for_each_trace(lambda t: t.update(name="Echt" if t.name == temp_col else "Voorspeld"))
     st.plotly_chart(fig, use_container_width=True)
-
-
 # ====== VOORSPELMODELLEN VOOR GEBIEDEN ======
 elif view == "Voorspelmodellen per gebied":
     st.title("Temperatuurvoorspelling per gebied")
@@ -268,13 +267,12 @@ elif view == "Voorspelmodellen per gebied":
         "Oost-Kreta": "data_daily_OostKreta.csv"
     }
 
-    # Coördinaten voor kaartpunten (gebruik logische locaties; pas aan waar nodig)
+    # Coördinaten voor kaartpunten
     COORDS = {
         **{"Alpen": (46.8, 9.8), "Pyreneeën": (42.6, 0.5), "Karpaten": (47.0, 24.0)},
         **{"Noordzee": (55.0, 3.0), "Middellandse Zee": (42.5, 5.0), "Atlantische Oceaan": (41.0, -10.0)},
         **{"Tabernas": (37.0, -2.4), "Bardenas Reales": (42.2, -1.5), "Oost-Kreta": (35.1, 26.2)}
     }
-
     # =================================================================================
     # 1) BERG / 2) ZEE / 3) WOESTIJN: Toon grafiek voor de geselecteerde regio + MAE-kaart
     # =================================================================================
@@ -300,10 +298,10 @@ elif view == "Voorspelmodellen per gebied":
             st.stop()
         temp_col = temp_cols[0]
 
-        # slider voor horizon (zelfde slider gebruiken voor kaart MAE)
+        # slider voor horizon 
         lag = st.slider("Aantal dagen vooruit voorspellen (lag):", 1, 7, 1, key="lag_berg")
 
-        # Model (zoals jij had): persistence + seasonal linear regression
+        # Model persistence + seasonal linear regression
         df["day_of_year"] = df["date"].dt.dayofyear
         df["sin_doy"] = np.sin(2 * np.pi * df["day_of_year"] / 365)
         df["cos_doy"] = np.cos(2 * np.pi * df["day_of_year"] / 365)
@@ -339,7 +337,7 @@ elif view == "Voorspelmodellen per gebied":
             _set_month_xaxis(fig, df_model["date"])
             st.plotly_chart(fig, use_container_width=True)
 
-        # --- Bereken MAE per berggebied (gebruik dezelfde lag) ---
+        # --- Bereken MAE per berggebied ---
         mae_list = []
         for g, fpath in MOUNTAIN_FILES.items():
             if not os.path.exists(fpath):
@@ -448,7 +446,7 @@ elif view == "Voorspelmodellen per gebied":
             _set_month_xaxis(fig, df_model["date"])
             st.plotly_chart(fig, use_container_width=True)
 
-        # --- MAE kaart voor alle zeegebieden (met zelfde lag) ---
+        # --- MAE kaart voor alle zeegebieden  ---
         mae_list = []
         for g, fpath in SEA_FILES.items():
             if not os.path.exists(fpath):
