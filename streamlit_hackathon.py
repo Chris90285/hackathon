@@ -90,9 +90,21 @@ if view == "Tijdreeks per stad":
         # combineer voor tick-bereik
         combined = []
         for city in selected_cities:
-            df = load_city(CITY_FILES[city])
-            temp_col = [c for c in df.columns if "Gemiddelde" in c or "t2m" in c][0]
+            try:
+                df = load_city(CITY_FILES[city])
+            except FileNotFoundError:
+                st.warning(f"Bestand voor {city} niet gevonden: {CITY_FILES[city]}")
+                continue
+            # detect temp column safely
+            temp_cols = [c for c in df.columns if "Gemiddelde" in c or "t2m" in c.lower() or "t2m" in c]
+            if not temp_cols:
+                st.warning(f"Geen temperatuurkolom in {city}")
+                continue
+            temp_col = temp_cols[0]
             df_filtered = df[df["date"].dt.month.isin(maanden)]
+            if df_filtered.empty:
+                st.warning(f"Geen data voor gekozen maanden in {city}")
+                continue
             combined.append(df_filtered[["date"]])
             fig.add_scatter(x=df_filtered["date"], y=df_filtered[temp_col], mode="lines", name=city)
         if combined:
@@ -100,8 +112,16 @@ if view == "Tijdreeks per stad":
             _set_month_xaxis(fig, combined_dates)
     else:
         city = st.selectbox("Kies stad:", list(CITY_FILES.keys()))
-        df = load_city(CITY_FILES[city])
-        temp_col = [c for c in df.columns if "Gemiddelde" in c or "t2m" in c][0]
+        try:
+            df = load_city(CITY_FILES[city])
+        except FileNotFoundError:
+            st.error(f"Bestand voor {city} niet gevonden: {CITY_FILES[city]}")
+            st.stop()
+        temp_cols = [c for c in df.columns if "Gemiddelde" in c or "t2m" in c.lower() or "t2m" in c]
+        if not temp_cols:
+            st.error("Geen temperatuurkolom gevonden in dataset.")
+            st.stop()
+        temp_col = temp_cols[0]
         df_filtered = df[df["date"].dt.month.isin(maanden)]
         fig = px.line(
             df_filtered,
@@ -246,12 +266,6 @@ elif view == "Simpel Voorspelmodel":
 
 # ====== VOORSPELMODELLEN VOOR GEBIEDEN ======
 elif view == "Voorspelmodellen per gebied":
-    import streamlit as st
-    import pandas as pd
-    import numpy as np
-    import plotly.express as px
-    from sklearn.linear_model import LinearRegression
-
     st.title("🌍 Temperatuurvoorspelling per gebied")
 
     # === FILE DICTIONARIES ===
@@ -298,151 +312,225 @@ elif view == "Voorspelmodellen per gebied":
         files = DESERT_FILES
 
     region = st.selectbox(f"Kies {gebied_type.lower()[:-1]}:", list(files.keys()))
-    df = pd.read_csv(files[region])
+    # veilig inladen
+    try:
+        df = pd.read_csv(files[region])
+    except FileNotFoundError:
+        st.error(f"Bestand niet gevonden: {files[region]}")
+        st.stop()
     df.columns = df.columns.str.replace(" ", "_")
-    df["date"] = pd.to_datetime(df["date"])
+    if "date" in df.columns:
+        df["date"] = pd.to_datetime(df["date"])
     df = df.sort_values("date").reset_index(drop=True)
-    temp_col = [c for c in df.columns if "Gemiddelde" in c or "t2m" in c][0]
+    temp_cols = [c for c in df.columns if "Gemiddelde" in c or "t2m" in c.lower() or "t2m" in c]
+    if not temp_cols:
+        st.error("Geen temperatuurkolom gevonden in de dataset.")
+        st.stop()
+    temp_col = temp_cols[0]
 
     # === MODEL DEFINITIONS ===
+    df_model_work = df.copy()
     if gebied_type == "Berggebieden":
         # Seasonal linear regression model
-        df["day_of_year"] = df["date"].dt.dayofyear
-        df["sin_doy"] = np.sin(2 * np.pi * df["day_of_year"] / 365)
-        df["cos_doy"] = np.cos(2 * np.pi * df["day_of_year"] / 365)
-        df["Simpel"] = df[temp_col].shift(lag)
-        df["lag_temp"] = df[temp_col].shift(1)
-        df = df.dropna()
-        X = df[["lag_temp", "sin_doy", "cos_doy"]]
-        y = df[temp_col]
-        model = LinearRegression().fit(X, y)
-        df["Model"] = model.predict(X)
+        df_model_work["day_of_year"] = df_model_work["date"].dt.dayofyear
+        df_model_work["sin_doy"] = np.sin(2 * np.pi * df_model_work["day_of_year"] / 365)
+        df_model_work["cos_doy"] = np.cos(2 * np.pi * df_model_work["day_of_year"] / 365)
+        df_model_work["Simpel"] = df_model_work[temp_col].shift(lag)
+        df_model_work["lag_temp"] = df_model_work[temp_col].shift(1)
+        df_model_work = df_model_work.dropna()
+        if df_model_work.shape[0] < 2:
+            st.warning("Niet genoeg data om model en grafiek te maken voor dit gebied.")
+            mae_simple = np.nan
+            mae_model = np.nan
+            plot_df = None
+        else:
+            X = df_model_work[["lag_temp", "sin_doy", "cos_doy"]]
+            y = df_model_work[temp_col]
+            model = LinearRegression().fit(X, y)
+            df_model_work["Model"] = model.predict(X)
+            mae_simple = np.mean(np.abs(df_model_work[temp_col] - df_model_work["Simpel"]))
+            mae_model = np.mean(np.abs(df_model_work[temp_col] - df_model_work["Model"]))
+            plot_df = df_model_work
 
     elif gebied_type == "Zeegebieden":
         # Moving average + harmonic model
-        df["Simpel"] = df[temp_col].shift(lag)
-        df["MA_7d"] = df[temp_col].rolling(window=7, center=True).mean()
-        df["day_of_year"] = df["date"].dt.dayofyear
-        df["sin1"] = np.sin(2 * np.pi * df["day_of_year"] / 365)
-        df["cos1"] = np.cos(2 * np.pi * df["day_of_year"] / 365)
-        df["sin2"] = np.sin(4 * np.pi * df["day_of_year"] / 365)
-        df["cos2"] = np.cos(4 * np.pi * df["day_of_year"] / 365)
-        df = df.dropna()
-        X = df[["MA_7d", "sin1", "cos1", "sin2", "cos2"]]
-        y = df[temp_col]
-        model = LinearRegression().fit(X, y)
-        df["Model"] = model.predict(X)
+        df_model_work["Simpel"] = df_model_work[temp_col].shift(lag)
+        df_model_work["MA_7d"] = df_model_work[temp_col].rolling(window=7, center=True).mean()
+        df_model_work["day_of_year"] = df_model_work["date"].dt.dayofyear
+        df_model_work["sin1"] = np.sin(2 * np.pi * df_model_work["day_of_year"] / 365)
+        df_model_work["cos1"] = np.cos(2 * np.pi * df_model_work["day_of_year"] / 365)
+        df_model_work["sin2"] = np.sin(4 * np.pi * df_model_work["day_of_year"] / 365)
+        df_model_work["cos2"] = np.cos(4 * np.pi * df_model_work["day_of_year"] / 365)
+        df_model_work = df_model_work.dropna()
+        if df_model_work.shape[0] < 2:
+            st.warning("Niet genoeg data om model en grafiek te maken voor dit gebied.")
+            mae_simple = np.nan
+            mae_model = np.nan
+            plot_df = None
+        else:
+            X = df_model_work[["MA_7d", "sin1", "cos1", "sin2", "cos2"]]
+            y = df_model_work[temp_col]
+            model = LinearRegression().fit(X, y)
+            df_model_work["Model"] = model.predict(X)
+            mae_simple = np.mean(np.abs(df_model_work[temp_col] - df_model_work["Simpel"]))
+            mae_model = np.mean(np.abs(df_model_work[temp_col] - df_model_work["Model"]))
+            plot_df = df_model_work
 
     else:  # Woestijnen
         # Daily temp variation + persistence + seasonality
-        df["Simpel"] = df[temp_col].shift(lag)
-        df["day_of_year"] = df["date"].dt.dayofyear
-        df["sin1"] = np.sin(2 * np.pi * df["day_of_year"] / 365)
-        df["cos1"] = np.cos(2 * np.pi * df["day_of_year"] / 365)
-        df["day_night_diff"] = df[temp_col].rolling(window=2).apply(lambda x: x.max() - x.min())
-        df = df.dropna()
-        X = df[["Simpel", "sin1", "cos1", "day_night_diff"]]
-        y = df[temp_col]
-        model = LinearRegression().fit(X, y)
-        df["Model"] = model.predict(X)
+        df_model_work["Simpel"] = df_model_work[temp_col].shift(lag)
+        df_model_work["day_of_year"] = df_model_work["date"].dt.dayofyear
+        df_model_work["sin1"] = np.sin(2 * np.pi * df_model_work["day_of_year"] / 365)
+        df_model_work["cos1"] = np.cos(2 * np.pi * df_model_work["day_of_year"] / 365)
+        # korte window day-night diff (if dataset is daily this is approximate)
+        df_model_work["day_night_diff"] = df_model_work[temp_col].rolling(window=2).apply(lambda x: x.max() - x.min(), raw=False)
+        df_model_work = df_model_work.dropna()
+        if df_model_work.shape[0] < 2:
+            st.warning("Niet genoeg data om model en grafiek te maken voor dit gebied.")
+            mae_simple = np.nan
+            mae_model = np.nan
+            plot_df = None
+        else:
+            X = df_model_work[["Simpel", "sin1", "cos1", "day_night_diff"]]
+            y = df_model_work[temp_col]
+            model = LinearRegression().fit(X, y)
+            df_model_work["Model"] = model.predict(X)
+            mae_simple = np.mean(np.abs(df_model_work[temp_col] - df_model_work["Simpel"]))
+            mae_model = np.mean(np.abs(df_model_work[temp_col] - df_model_work["Model"]))
+            plot_df = df_model_work
 
-    # === ERROR METRICS ===
-    mae_simple = np.mean(np.abs(df[temp_col] - df["Simpel"]))
-    mae_model = np.mean(np.abs(df[temp_col] - df["Model"]))
-
+    # === ERROR METRICS OUTPUT ===
     st.markdown(f"""
     **MAE ({region}, {lag}-dagen horizon):**
-    - Simpel model: {mae_simple:.2f} °C  
-    - Geavanceerd model: {mae_model:.2f} °C  
+    - Simpel model: {mae_simple if not pd.isna(mae_simple) else 'n.v.t.'} °C  
+    - Geavanceerd model: {mae_model if not pd.isna(mae_model) else 'n.v.t.'} °C  
     """)
 
-    # === PREDICTION GRAPH ===
-    fig = px.line(
-        df,
-        x="date",
-        y=[temp_col, "Simpel", "Model"],
-        labels={"value": "Temperatuur (°C)", "date": "Datum"},
-        title=f"📈 Voorspelling vs. Observatie – {region}"
-    )
-    fig.for_each_trace(lambda t: t.update(
-        name="Werkelijke temperatuur" if t.name == temp_col
-        else "Simpel model" if t.name == "Simpel"
-        else "Voorspellend model"
-    ))
-    fig.update_layout(legend_title_text="Legenda")
-    st.plotly_chart(fig, use_container_width=True)
+    # === PREDICTION GRAPH (only if plot_df exists) ===
+    if plot_df is None:
+        st.info("Niet genoeg data om voorspelling grafiek te tonen voor deze selectie.")
+    else:
+        fig = px.line(
+            plot_df,
+            x="date",
+            y=[temp_col, "Simpel", "Model"],
+            labels={"value": "Temperatuur (°C)", "date": "Datum"},
+            title=f"📈 Voorspelling vs. Observatie – {region}"
+        )
+        fig.for_each_trace(lambda t: t.update(
+            name="Werkelijke temperatuur" if t.name == temp_col
+            else "Simpel model" if t.name == "Simpel"
+            else "Voorspellend model"
+        ))
+        fig.update_layout(legend_title_text="Legenda")
+        _set_month_xaxis(fig, plot_df["date"])
+        st.plotly_chart(fig, use_container_width=True)
 
     # === INTERACTIVE MAE MAP ===
     st.subheader("🌐 Vergelijk MAE per gebied op de kaart")
 
-    # Compute MAE for all regions to visualize on one map
+    # Compute MAE for all regions to visualize on one map (skip missing files)
     all_regions = {**MOUNTAIN_FILES, **SEA_FILES, **DESERT_FILES}
     maes = []
     for r, path in all_regions.items():
-        df_temp = pd.read_csv(path)
+        if not os.path.exists(path):
+            # skip missing files silently (user wanted only real locations shown)
+            # optional: print to logs
+            # print(f"Missing file: {path}")
+            continue
+        try:
+            df_temp = pd.read_csv(path)
+        except Exception:
+            # skip unreadable files
+            continue
         df_temp.columns = df_temp.columns.str.replace(" ", "_")
-        df_temp["date"] = pd.to_datetime(df_temp["date"])
+        if "date" in df_temp.columns:
+            df_temp["date"] = pd.to_datetime(df_temp["date"], errors="coerce")
         df_temp = df_temp.sort_values("date").reset_index(drop=True)
-        tcol = [c for c in df_temp.columns if "Gemiddelde" in c or "t2m" in c][0]
+        temp_candidates = [c for c in df_temp.columns if "Gemiddelde" in c or "t2m" in c.lower() or "t2m" in c]
+        if not temp_candidates:
+            continue
+        tcol = temp_candidates[0]
 
+        # safe MAE calc: need at least some non-null values after shift
         df_temp["Simpel"] = df_temp[tcol].shift(lag)
-        df_temp = df_temp.dropna()
-        mae = np.mean(np.abs(df_temp[tcol] - df_temp["Simpel"]))
+        df_temp = df_temp.dropna(subset=[tcol, "Simpel"])
+        if df_temp.shape[0] < 2:
+            continue
+        mae_val = np.mean(np.abs(df_temp[tcol] - df_temp["Simpel"]))
 
-        # categorize area type
         if r in MOUNTAIN_FILES:
-            t = "Berg"
+            ttype = "Berg"
         elif r in SEA_FILES:
-            t = "Zee"
+            ttype = "Zee"
         else:
-            t = "Woestijn"
+            ttype = "Woestijn"
+
+        # coords existence check
+        if r not in COORDS:
+            continue
 
         maes.append({
             "region": r,
             "lat": COORDS[r][0],
             "lon": COORDS[r][1],
-            "type": t,
-            "MAE": mae
+            "type": ttype,
+            "MAE": float(mae_val)
         })
 
     df_map = pd.DataFrame(maes)
 
-    fig_map = px.scatter_geo(
-        df_map,
-        lat="lat",
-        lon="lon",
-        color="MAE",
-        hover_name="region",
-        hover_data=["type", "MAE"],
-        color_continuous_scale="YlOrRd",
-        size="MAE",
-        projection="natural earth",
-        title=f"MAE per regio (lag = {lag} dagen)",
-        scope="europe"
-    )
+    if df_map.empty:
+        st.info("Geen data beschikbaar om MAE-kaart te tekenen (ontbrekende of onvolledige CSV-bestanden).")
+    else:
+        # adjust color range to be more sensitive
+        vmin = df_map["MAE"].min()
+        vmax = df_map["MAE"].max()
+        if np.isclose(vmin, vmax):
+            # make a small range so color scale shows contrast
+            vmin = max(0.0, vmin - 0.1)
+            vmax = vmax + 0.1
 
-    # Allow zooming & movement
-    fig_map.update_geos(
-        resolution=50,
-        showcountries=True,
-        showcoastlines=True,
-        showland=True,
-        landcolor="rgb(240, 240, 240)",
-        countrycolor="gray",
-        projection_scale=4,  # zoom
-        center={"lat": 46, "lon": 10},
-    )
+        fig_map = px.scatter_geo(
+            df_map,
+            lat="lat",
+            lon="lon",
+            color="MAE",
+            hover_name="region",
+            hover_data=["type", "MAE"],
+            color_continuous_scale="YlOrRd",
+            range_color=(vmin, vmax),
+            size="MAE",
+            size_max=20,
+            projection="natural earth",
+            title=f"MAE per regio (lag = {lag} dagen)",
+            scope="europe"
+        )
 
-    fig_map.update_layout(
-        coloraxis_colorbar=dict(title="MAE (°C)"),
-        dragmode="pan"
-    )
+        # improve interactivity: allow pan/zoom and nicer visuals
+        fig_map.update_geos(
+            resolution=50,
+            showcountries=True,
+            showcoastlines=True,
+            showland=True,
+            landcolor="rgb(240, 240, 240)",
+            countrycolor="gray",
+            projection_scale=4,  # initial zoom
+            center={"lat": 46, "lon": 10},
+        )
 
-    st.plotly_chart(fig_map, use_container_width=True)
+        fig_map.update_layout(
+            coloraxis_colorbar=dict(title="MAE (°C)"),
+            dragmode="pan",
+            margin=dict(l=10, r=10, t=50, b=10)
+        )
+
+        st.plotly_chart(fig_map, use_container_width=True)
 
     st.markdown("""
     **Interpretatie:**
     - De kleurintensiteit toont de fout (MAE) per locatie.  
     - Je kunt de kaart inzoomen en rondbewegen om verschillen tussen gebieden te vergelijken.  
-    - Lagere MAE (lichter) betekent nauwkeurigere voorspellingen.  
+    - Lagere MAE betekent nauwkeurigere voorspellingen.
     """)
+
