@@ -49,7 +49,7 @@ def load_map(file):
     df = pd.read_csv(file)
     return df
 # ====== SIDEBAR ======
-st.sidebar.image("weather_icon.png", use_container_width=True)
+st.sidebar.image("icon_weather.jpg", use_container_width=True)
 st.sidebar.title("Analyse van Temperatuur 2023")
 
 view = st.sidebar.radio(
