@@ -64,7 +64,7 @@ view = st.sidebar.radio(
 # ====== PAGINA'S ======
 if view == "Data Visualisatie":
     st.title("Data visualisatie")
-    image = Image.open("TEMP_MAP.png")
+    image = Image.open("Kaart_C.png")
     st.image(image, caption="Temperatuurkaart (2023)", use_container_width=True)
 # ====== TIJDREEKS ======
 if view == "Temperatuur per stad":
