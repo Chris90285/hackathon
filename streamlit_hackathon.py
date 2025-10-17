@@ -114,7 +114,7 @@ if view == "Temperatuur per stad":
             x="date",
             y=temp_col,
             title=f"Dagelijkse gemiddelde temperatuur in {city}",
-            labels={temp_col: "°C"},
+            labels={temp_col: "Temperatuur (°C)"},
             color_discrete_map={city: CITY_COLORS[city]}
         )
         _set_month_xaxis(fig, df_filtered["date"])
